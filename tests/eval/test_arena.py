@@ -83,9 +83,14 @@ def test_paired_seeds_both_seats_uses_the_same_seed_set_twice():
 
 
 def test_scenario_stratified_reporting_sums_to_the_total():
-    r = compare("baseline", "pass", n_seeds=10, episode_steps=720)
+    r = compare("baseline", "pass", n_seeds=10, episode_steps=720, use_regimes=True)
     total_n = sum(iv.n for iv in r.by_regime.values())
     assert total_n == r.n_games
+
+
+def test_scenario_stratification_is_off_by_default():
+    r = compare("baseline", "pass", n_seeds=3, episode_steps=200)
+    assert r.by_regime == {}
 
 
 def test_population_evaluation_runs_challenger_against_every_opponent():
