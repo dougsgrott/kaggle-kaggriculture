@@ -56,33 +56,28 @@ module = "wiki_hooks"
 # similarity earn the novel flag. Delete this whole section if the competition
 # has no meaningful reference — the clone/novel concepts then become inert.
 #
-# LEFT OFF DELIBERATELY: this competition does have a canonical forked agent,
-# but its source is not vendored anywhere local, so there is no directory to
-# point `dir` at. Two natural candidates, if one is ever checked out:
+# RESOLVED (issue 002): the reference is the public "soil/tape" agent lineage,
+# not the engine itself — 33 notebooks share the verbatim helpers _seat /
+# _align_hands / _trace_actor_action / _weed_repair_action, and 27 of those
+# also share _impact_score / _rank_sell_slots / _order_score. Vendored the
+# highest-voted copy, boatlee/v16-rc5-high-score-8c-4s-premium-market-lead
+# (121 votes), to vendor/public-soil/. Discussion 733924 calls this "the
+# current public reference agent" and notes three of the top-5 teams share
+# its exact opening. Runner-up copies not vendored: boatlee/v16-rc2-high-
+# score-near-mirror-market-relay (79 votes), romanrozen/strong-barnyard-
+# economist (57).
 #
-#   1. bovard/kaggriculture-getting-started — the official starter
-#      ("melon_maxxer"), 623 votes, by far the most-voted notebook.
-#   2. The public "soil/tape" agent lineage that dominates the mid-ladder:
-#      33 notebooks share the verbatim helpers _seat / _align_hands /
-#      _trace_actor_action / _weed_repair_action, and 27 of those also share
-#      _impact_score / _rank_sell_slots / _order_score. Highest-voted copies:
-#      boatlee/v16-rc5-high-score-8c-4s-premium-market-lead (121 votes),
-#      boatlee/v16-rc2-high-score-near-mirror-market-relay (79),
-#      romanrozen/strong-barnyard-economist (57).
-#      Discussion 733924 calls this "the current public reference agent" and
-#      notes three of the top-5 teams share its exact opening.
-#
-# Until then the `open-loop-script` and `opponent-modeling` archetypes carry
-# the clone signal via their hard keywords (_copy_action, _clone_distance,
-# _public_signature), which is why they exist.
+# The `open-loop-script` and `opponent-modeling` archetypes still carry a
+# lineage signal via their own hard keywords (_copy_action, _clone_distance,
+# _public_signature) independent of this clone/novelty machinery.
 # ---------------------------------------------------------------------------- #
-#[reference]
-#dir = "vendor"               # directory (relative to this file) with the reference code
-#label = "the Public Soil agent"
-#short_label = "Public Soil"
-#clone_archetype = "public-soil-clone"
-#novel_sim_ceil = 0.3         # similarity at/above which a notebook is NOT novel
-#color = "#000000"            # clone color on the cluster map
+[reference]
+dir = "vendor/public-soil"   # directory (relative to this file) with the reference code
+label = "the Public Soil agent"
+short_label = "Public Soil"
+clone_archetype = "public-soil-clone"
+novel_sim_ceil = 0.3         # similarity at/above which a notebook is NOT novel
+color = "#000000"            # clone color on the cluster map
 
 # ---------------------------------------------------------------------------- #
 # Feature lexicon (Phase 2 recall net): category -> keywords, matched
