@@ -1,0 +1,28 @@
+[project]
+name = "kaggriculture"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Douglas Sgrott", email = "doug.sgrott@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "kaggle-environments>=1.32.7",
+    "kaggle-wiki-kit",
+]
+
+[project.scripts]
+kaggriculture = "kaggriculture:main"
+
+[build-system]
+requires = ["uv_build>=0.12.3,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+kaggle-wiki-kit = { path = "../kaggle-wiki-kit", editable = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]

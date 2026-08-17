@@ -1,0 +1,470 @@
+# ============================================================================ #
+# Competition profile — the single per-competition configuration consumed by
+# every wikikit mirror and analysis command.
+#
+# Re-targeting the pipeline at a different competition starts (and mostly ends)
+# with rewriting this file. The one domain-specific piece that can stay in
+# code is score_archetypes() — supply it in the [hooks] module when the
+# generic scorer (distinct hard-keyword hits) isn't good enough.
+#
+# Kaggriculture is a two-player, 720-turn farming/economy simulation: one
+# farmer action per turn (plus hired hands), up to 10 market orders per turn,
+# and a dynamic price curve that punishes gluts. Winner = most coins banked.
+# Every keyword below was frequency-checked against wiki/notebooks/raw/ (254
+# notebooks with code cells) with base85/tar submission blobs stripped, so the
+# counts quoted in comments are "notebooks containing the word".
+# ============================================================================ #
+
+[competition]
+slug = "kaggriculture"          # Kaggle competition slug (default for --competition)
+title = "Kaggriculture"        # display name used in generated page titles
+
+# ---------------------------------------------------------------------------- #
+# Pillars: which capture/analysis tracks run. Default is all four; hackathons
+# without a meaningful leaderboard typically drop "leaderboard".
+#
+# All four stay on: this is a ladder competition (4,784 teams in the current
+# snapshot, skill ratings + a final Bradley-Terry tournament), so the
+# leaderboard pillar carries real signal.
+# ---------------------------------------------------------------------------- #
+#[pillars]
+#enabled = ["competition", "discussions", "notebooks", "leaderboard"]
+
+# ---------------------------------------------------------------------------- #
+# Hooks: a .py file next to this toml providing competition-specific logic
+# (currently: score_archetypes). See wiki_hooks.py for a commented stub.
+#
+# Note: "rule-based/heuristic" below carries an empty `hard` set on purpose —
+# it is the fallback label the tagger reaches for when nothing else scores.
+# The default scorer can never award it points; enable the commented
+# score_archetypes() floor in wiki_hooks.py to make it fire.
+# ---------------------------------------------------------------------------- #
+[hooks]
+module = "wiki_hooks"
+
+# ---------------------------------------------------------------------------- #
+# Output roots, relative to this file's directory. Rarely needed.
+# ---------------------------------------------------------------------------- #
+#[paths]
+#wiki = "wiki"
+#analysis = "analysis"
+
+# ---------------------------------------------------------------------------- #
+# Reference solution: what "novelty" is measured against. Every notebook is
+# scored for shingle similarity to the code under `dir`; near-verbatim copies
+# are tagged with `clone_archetype`, and notebooks below `novel_sim_ceil`
+# similarity earn the novel flag. Delete this whole section if the competition
+# has no meaningful reference — the clone/novel concepts then become inert.
+#
+# LEFT OFF DELIBERATELY: this competition does have a canonical forked agent,
+# but its source is not vendored anywhere local, so there is no directory to
+# point `dir` at. Two natural candidates, if one is ever checked out:
+#
+#   1. bovard/kaggriculture-getting-started — the official starter
+#      ("melon_maxxer"), 623 votes, by far the most-voted notebook.
+#   2. The public "soil/tape" agent lineage that dominates the mid-ladder:
+#      33 notebooks share the verbatim helpers _seat / _align_hands /
+#      _trace_actor_action / _weed_repair_action, and 27 of those also share
+#      _impact_score / _rank_sell_slots / _order_score. Highest-voted copies:
+#      boatlee/v16-rc5-high-score-8c-4s-premium-market-lead (121 votes),
+#      boatlee/v16-rc2-high-score-near-mirror-market-relay (79),
+#      romanrozen/strong-barnyard-economist (57).
+#      Discussion 733924 calls this "the current public reference agent" and
+#      notes three of the top-5 teams share its exact opening.
+#
+# Until then the `open-loop-script` and `opponent-modeling` archetypes carry
+# the clone signal via their hard keywords (_copy_action, _clone_distance,
+# _public_signature), which is why they exist.
+# ---------------------------------------------------------------------------- #
+#[reference]
+#dir = "vendor"               # directory (relative to this file) with the reference code
+#label = "the Public Soil agent"
+#short_label = "Public Soil"
+#clone_archetype = "public-soil-clone"
+#novel_sim_ceil = 0.3         # similarity at/above which a notebook is NOT novel
+#color = "#000000"            # clone color on the cluster map
+
+# ---------------------------------------------------------------------------- #
+# Feature lexicon (Phase 2 recall net): category -> keywords, matched
+# case-insensitively on whole words in the cleaned source. Deliberately
+# domain-specific; generic terms (bare "value") are too noisy.
+# Category keys become the lexicon feature columns everywhere downstream.
+#
+# Leading-underscore entries are shared helper names from the public agent
+# lineage. `\b_name\b` matches fine (the `_` is preceded by whitespace at a
+# def/call site) and they are the highest-precision family markers available.
+# ---------------------------------------------------------------------------- #
+[lexicon]
+# Trading surface: what gets bought and sold at all. Broad by design.
+market = ["market", "prices", "price", "sell", "sells", "sold", "buy",
+          "buy_seed", "buy_product", "buy_animal", "market_orders",
+          "inventory", "revenue", "cash", "profit", "dump", "liquidate",
+          "liquidation", "premium", "spread", "maxmarketordersperturn"]
+
+# Modelling the price function itself (base/I0/T, shape funcs, targets) rather
+# than just calling SELL. This is the sharpest economic signal in the corpus.
+# glut 37, equilibrium 47, above_target 60, market_params 24, hinge 1.
+#
+# CAUTION (measured 2026-08-16): equilibrium/above_func/below_func/above_target/
+# below_target/market_params are the *field names of the engine's own
+# _MARKET_PARAMS table*, which 56 notebooks paste verbatim
+# ("WHEAT": (25, 10000, 400, "sqrt", 0.8, "log", 0.2), ...). They are recall
+# only — see the market-timing archetype note for why they were demoted.
+price_curve = ["glut", "floor", "equilibrium", "above_target", "below_target",
+               "above_func", "below_func", "market_params", "amp", "hinge",
+               "marginal", "elasticity", "_market_price", "_impact_score",
+               "_order_score", "_rank_sell_slots", "_future_sells_at",
+               "_terminal_liquidation"]
+
+# Town shops/town center are the exogenous demand that keeps prices off the
+# floor; the shop names cluster the notebooks that actually schedule around
+# them (each shop name lands in ~58 notebooks, almost always together).
+town_demand = ["town", "demand", "supply", "unlocked_shops", "bakery",
+               "pizza_shop", "brunch_spot", "yarn_store", "pet_cafe",
+               "smoothie_shop", "ice_cream_shop", "farmers_market",
+               "towncentersellinterval", "_demand_per_day",
+               "_town_demand_per_day"]
+
+# Crop side of the farm: what to plant, the watering/fertilizer cycle, weeds.
+# The obs-dict field names (watered_today, yield_units, ...) stay lexicon-only
+# — the engine hands them to every agent, so they cannot discriminate.
+#
+# crop_age 11, seed_cost 23, unwatered 15, fertilized 12 are the agent-authored
+# crop-cycle variables (as opposed to the obs fields they are derived from);
+# they were mined as the highest-precision terms of the 53 crop-dominant
+# notebooks and promoted to the crop-engine hard set.
+crops = ["wheat", "carrot", "tomato", "strawberry", "melon", "melons", "crop",
+         "crops", "seed", "seeds", "seed_cost", "plant", "planting", "plants",
+         "water", "watering", "watered_today", "unwatered",
+         "consecutive_unwatered", "harvest", "fertilize", "fertilized",
+         "fertilizer", "fertilizer_available", "fertilized_until_day",
+         "crop_age", "first_yield_day", "max_yield", "max_yield_day",
+         "yield_units", "planted_day", "weed", "weeds", "dig", "dig_weed",
+         "rotation", "ongoing", "_weed_repair_action", "_melon_target"]
+
+# Animal side: coops/pastures, feeding wheat, and the CARE yield bank that
+# discussion 734033 measures as one of the biggest levers in the game.
+livestock = ["cow", "cows", "sheep", "goose", "geese", "milk", "wool", "egg",
+             "coop", "pasture", "build_coop", "build_pasture", "livestock",
+             "herd", "animal", "animals", "feed", "fed_today", "cared_today",
+             "care", "consecutive_unfed", "max_held", "pending_care_bonus",
+             "collect_fertilizer", "animal_slots", "_livestock_score",
+             "_herd_targets", "_farm_animal_counts",
+             "_animal_produces_tonight", "_reserved_animal_slots"]
+
+# Actions per turn are the real constraint, and hands are the only way to buy
+# more of them (HIRE cost = farmHandCostMult * fib(n)).
+#
+# target_hands 17, max_hands 22, n_hands 14, hand_positions 7 are the crew-sizing
+# variables agents actually write (only 0-6 of each are inside the public-soil
+# lineage), which is what labor-scaling needs — "labor"/"worker" are prose.
+labor = ["hire", "hires", "hired", "hires_today", "hands", "hand", "labor",
+         "worker", "crew", "seat", "seats", "fib", "fibonacci",
+         "farmhandcostmult", "target_hands", "max_hands", "n_hands",
+         "hand_positions", "_target_hands", "_align_hands", "_role_plan",
+         "_seat"]
+
+# Getting units to the right tile and the shed; movement wastes turns.
+logistics = ["shed", "pickup", "drop", "place", "route", "routing", "bfs",
+             "manhattan", "step_toward", "distance", "travel", "north",
+             "south", "east", "west", "shedcapacity", "_shed_access",
+             "_nearest_shed"]
+
+# Land/capital allocation. Every competitor has to decide how many quadrants
+# to buy (discussion 734308: "why aren't top solutions using the 4th?"), so
+# this is clustering flavor, not an archetype.
+expansion = ["buy_land", "land", "quadrant", "quadrants", "unlocked_quadrants",
+             "capital", "budget", "reserve", "money", "bank", "coins"]
+
+# Reading the other farm (it is public) and reacting to it.
+opponent = ["opponent", "opponents", "rival", "mirror", "clone", "preempt",
+            "preemption", "signature", "fingerprint", "pressure", "block",
+            "tie", "counter", "opponent_supply", "_clone_distance",
+            "_public_signature", "_preempt_shift", "_front_run",
+            "_opponent_visible_supply", "_opponent_animal_counts"]
+
+# Open-loop vs closed-loop is THE axis in the forum (733002, 733055): most of
+# the ladder runs a fixed plan, and 22 notebooks literally replay a recorded
+# action tape (TRACE_ACTIONS lifted from a specific episode + seat).
+plan_shape = ["plan", "planned", "schedule", "phase", "phases", "regime",
+              "horizon", "precomputed", "fixed", "static", "deterministic",
+              "trace", "trace_actions", "tape", "_trace_actor_action",
+              "_copy_action", "_regime", "_policy_phase"]
+
+# The other pole: score-and-pick controllers that re-decide every turn.
+control = ["priority", "urgency", "gate", "threshold", "controller",
+           "adaptive", "greedy", "search", "simulate", "simulation",
+           "planner", "decide"]
+
+# Offline measurement: local self-play, holdouts, ladder/replay study. This is
+# the domain's substitute for a training loop (see [tagger] below).
+evaluation = ["replay", "episode", "episodes", "ladder", "rating", "elo",
+              "leaderboard", "win_rate", "wins", "holdout", "smoke",
+              "validation", "benchmark", "tournament", "duel", "h2h",
+              "run_match", "run_episode", "ablation", "counterfactual",
+              "matchup"]
+
+# Not strategy, but load-bearing for interpretation: ~100 notebooks ship the
+# agent as a base85/tar/zlib blob written to main.py, so their strategy code
+# is invisible to keyword features. A high `packaging` score with a flat
+# strategy profile means "opaque submission", not "no strategy".
+packaging = ["tarfile", "b85decode", "zlib", "gzip", "hexdigest", "sha256",
+             "write_bytes", "exec_module", "importlib", "main.py",
+             "subprocess"]
+
+# ---------------------------------------------------------------------------- #
+# Optional extensions to the generic import->category map (torch->learned,
+# numpy->numeric, ... are built in). Add libraries central to the new domain,
+# e.g.  timm = "learned".
+#
+# gym/gymnasium/torch/sklearn already map to "learned" in the base map; they
+# are kept only as a tripwire, since this corpus has essentially no ML
+# (torch: 1 notebook, gymnasium/sb3/sklearn: 0).
+# ---------------------------------------------------------------------------- #
+[import_tags]
+kaggle_environments = "sim"   # the engine package — 147/254 notebooks
+kaggriculture = "sim"         # the env module imported directly (CROPS, MARKET_PARAMS)
+tarfile = "packaging"         # 89 — the base85/tar submission idiom
+base64 = "packaging"          # 101
+zlib = "packaging"            # 66
+gzip = "packaging"            # 31
+importlib = "packaging"       # 66 — exec the unpacked main.py
+
+# ---------------------------------------------------------------------------- #
+# Leaderboard analytics: teams to track across snapshots. Entries match
+# case-insensitively against the team name or member usernames — prefer
+# usernames (stable; team names can be renamed).
+#
+# Own account first, then the current top of the ladder, then the notebook
+# authors whose public work moves the meta (rank in the 2026-08-16 snapshot
+# noted where they are also competing).
+# ---------------------------------------------------------------------------- #
+[leaderboard]
+watchlist = [
+  "dougsgrott",          # own account (no ranked submission in the current snapshot)
+  # --- current top 10 ---
+  "kawashigi", "thomastschinkel", "n0va007", "peikopon", "ashok205",
+  "yuratrubitsyn", "isaienkov", "sclim2022080004", "boatlee", "efecnc",
+  # --- high-signal notebook authors ---
+  "indarkarhana",        # rank 15, 3 notebooks / 72 votes
+  "bruceqdu",            # rank 36
+  "jek1wantaufik",       # rank 44
+  "kaitofukami",         # rank 102, 7 notebooks / 451 votes — the iteration write-ups
+  "salemali7",           # rank 112
+  "tetsutani",           # rank 131
+  "prvsiyan",            # rank 184, 5 notebooks / 272 votes
+  "raykkretzschmar",     # rank 368, "from zero to top meta" + "rank your agent"
+  "romanrozen",          # rank 230, most-voted public-lineage fork
+  "romantamrazov",       # "hamburger" (127 votes), most-voted trace-tape agent
+  "pilkwang",            # precomputed-schedule policy
+  "beicicc",             # 24 ablation notebooks — the systematic prober
+  "bovard",              # organizer; author of the official starter notebook
+]
+
+# ---------------------------------------------------------------------------- #
+# Tagger auxiliaries: train_words are actual training-loop evidence —
+# distinguishes "does ML" from "imports torch".
+#
+# The stock torch-loop words are ALL zero-hit here (backward, optimizer,
+# zero_grad, requires_grad, dataloader, epoch, epochs: 0/254) and were
+# dropped. This competition is won by hand-written policies: exactly one
+# notebook (bruceqdu/two-reinforcement-learning-examples-from-kaito-v27) shows
+# anything resembling training. The words below are what is actually left, so
+# a hit here is a genuine outlier worth reading. The domain's real analogue of
+# a training loop — offline self-play tuning — lives in the `evaluation`
+# lexicon category instead.
+# ---------------------------------------------------------------------------- #
+[tagger]
+train_words = ["train", "training", "torch", "checkpoint", "weights",
+               "criterion", "gradient"]
+
+# ---------------------------------------------------------------------------- #
+# Archetypes: the primary approach labels, in display/priority order.
+#   hard  — discriminating keywords precise enough to be trusted alone (the
+#           tagger's precision tier; [lexicon] above is the recall tier).
+#   color — cluster-map color; omit to auto-assign from a fixed palette.
+# Structural labels (baseline/template, unknown, and the reference clone) are
+# appended automatically — do not list them here.
+#
+# Ordered by how much strategy signal the label carries: what the agent farms
+# and how it sells (1-4), then the shape of its policy (5-7), then notebooks
+# that study the game rather than play it (8), then the fallback (9).
+# Every `hard` word also appears in a [lexicon] category, or it could never
+# fire (keyword_hits is computed from the lexicon only).
+# ---------------------------------------------------------------------------- #
+
+# The strongest differentiator in the corpus: agents that model price(inv)
+# and schedule sells against it instead of dumping at harvest. Premium goods
+# (melon/wool/milk/strawberry) hit the $1 floor on a modest glut, so this is
+# where the ladder is actually won.
+#
+# DEMOTED 2026-08-16 (equilibrium 47, above_func 55, below_func 53,
+# above_target 60, below_target 53, market_params 24): these are the *keys of
+# the engine's own price table*, which notebooks paste verbatim to compute a
+# quote. 74 notebooks hit at least one; 12 hit them with no strategic market
+# term at all, and 9 of those 12 were being tagged market-timing — including
+# cjlcjlcjl/…-what-the-top-farms-do-a-live-meta (71 votes, a ladder study),
+# georgymamarin/…-visualized-what-every-crop-pays (74 votes, an EDA),
+# bielabs/base-data-structures-for-kaggriculture and
+# alexandergremyakov/harvest-pulse-goose-dividend-v2 (a goose/CARE agent).
+# They stay in the price_curve lexicon for recall. "hinge" went with them for
+# a different reason: 1 hit in 256 notebooks. Dropping the seven took
+# market-timing from 73 to 46 and returned 4 notebooks to meta-analysis and 8
+# to livestock-engine.
+[[archetype]]
+name = "market-timing"
+hard = ["glut", "marginal", "liquidation", "_market_price", "_impact_score",
+        "_order_score", "_rank_sell_slots", "_future_sells_at",
+        "_terminal_liquidation", "_demand_per_day"]
+color = "#0072B2"
+
+# Herd-first economies: coops/pastures, wheat as feedstock, and the CARE bank
+# (feed + care daily, collect a 3-4x payout on the production tick).
+#
+# DEMOTED: "livestock" (37 notebooks, only 8 of them tagged livestock-engine).
+# It is a prose word; on its own it fired on the top public-lineage *market*
+# agents (boatlee/v16-rc5-…-premium-market-lead, romanrozen/strong-barnyard-
+# economist), whose only use of it is a comment or a `livestock_ops` set.
+#
+# cared_today / consecutive_unfed are observation fields and would normally be
+# lexicon-only by the rule above, but they are kept hard on measured grounds:
+# unlike watered_today they only appear in 39 / 19 notebooks, because only an
+# agent that owns animals ever reads them. Removing them costs real recall
+# (e.g. .../care-is-a-4-2x-multiplier-animal-economics falls back to
+# market-timing), so the blanket obs-field rule is not applied here.
+[[archetype]]
+name = "livestock-engine"
+hard = ["herd", "max_held", "pending_care_bonus", "cared_today",
+        "consecutive_unfed", "build_coop", "animal_slots", "_livestock_score",
+        "_herd_targets", "_farm_animal_counts", "_animal_produces_tonight",
+        "_reserved_animal_slots"]
+color = "#D55E00"
+
+# Field-first economies: yield-curve-aware planting, the watering bonus
+# window, fertilizer timing, weed repair. max_yield_day (26) is the tell —
+# it is an engine CROPS constant, not something the observation hands you.
+#
+# This was the most under-recalled label in the first pass (11 notebooks, 7 of
+# them won on a tie). 53 notebooks are crop-dominant by lexicon (crops count
+# >= 25 and > 2.5x livestock and > market) yet were landing in market-timing
+# or unknown. Mining those 53 against the rest of the corpus produced the four
+# promoted terms — crop_age (11 hits, 1 outside), seed_cost (23), unwatered
+# (15), fertilized (12), none of them inside the public-soil lineage.
+#
+# DEMOTED, all three false fires:
+#   _weed_repair_action  36 hits, 34 of them the public-soil lineage — a
+#                        family marker; exactly 1 of its notebooks was tagged
+#                        crop-engine.
+#   _melon_target        7 hits, 0 tagged crop-engine (it is the beicicc
+#                        herd-scenario lineage, which is livestock).
+#   rotation             21 hits, but alone it fired on ladder/meta write-ups
+#                        (busyaprime/what-actually-wins-on-the-kaggriculture-
+#                        ladder, georgymamarin/…-daily-replays-the-live-meta-
+#                        report, …-frontier-lab-high-score-visuals).
+# NOT promoted, despite good raw counts: first_yield_day (30) and max_yield
+# (28) are further keys of the same pasted CROPS constant table, i.e. the same
+# false-fire class as the price-table keys — adding them pushed the two big
+# EDA notebooks above into crop-engine. Lexicon-only.
+[[archetype]]
+name = "crop-engine"
+hard = ["max_yield_day", "dig_weed", "crop_age", "seed_cost", "unwatered",
+        "fertilized"]
+color = "#009E73"
+
+# Turns, not land or money, are the binding constraint: buy more actions with
+# hands (fib-priced) and keep them busy. hires_today is an observation field
+# (59 notebooks), so it stays lexicon-only.
+#
+# DEMOTED: "labor" (23 hits, 1 tagged labor-scaling) and "worker" (21 hits, 4
+# tagged) are prose, and between them they were pulling EDA notebooks in —
+# georgymamarin/…-visualized-what-every-crop-pays (74 votes) was tagged
+# labor-scaling on nothing else. "fibonacci" (9) went too: it is double
+# counting, since only 3 of its notebooks do not also write fib(n), and the
+# extra 2.0 was enough to beat meta-analysis on msama01/kaggriculture-
+# evaluation-agent-performance-analys.
+# PROMOTED instead: target_hands 17, max_hands 22, n_hands 14,
+# hand_positions 7 — the crew-sizing variables, largely outside the lineage.
+#
+# _align_hands is kept for completeness but is inert: all 34 of its notebooks
+# are decided by another archetype, so removing it changes nothing.
+[[archetype]]
+name = "labor-scaling"
+hard = ["crew", "fib", "farmhandcostmult", "target_hands", "max_hands",
+        "n_hands", "hand_positions", "_target_hands", "_align_hands",
+        "_role_plan"]
+color = "#CC79A7"
+
+# The dominant meta: a fixed, pre-simulated plan executed regardless of the
+# opponent — up to and including replaying a literal action tape recorded
+# from a specific episode/seat (22 notebooks define TRACE_ACTIONS).
+[[archetype]]
+name = "open-loop-script"
+hard = ["trace_actions", "tape", "precomputed", "_trace_actor_action",
+        "_copy_action", "_regime", "_policy_phase"]
+color = "#E69F00"
+
+# Reacts to the (public) opposing farm: detect a near-clone opponent, fire
+# sells one turn ahead of theirs, count their animals, repay the shifted
+# quantity later.
+#
+# Small on purpose (5 notebooks), and left as-is after review. The vocabulary
+# is real but it is not independent: _clone_distance (14), _public_signature
+# (14) and _preempt_shift (13) live entirely inside the public-soil lineage,
+# as the clone-preemption *branch* of it (boatlee/…-v14-clone-preemption,
+# …-v16-rc2-high-score-near-mirror-market-relay). Those notebooks also carry
+# the full sell-scheduling helper set, so market-timing legitimately outscores
+# opponent-modeling on them. Splitting the branch out would need the
+# [reference]/clone machinery, not more keywords.
+[[archetype]]
+name = "opponent-modeling"
+hard = ["preemption", "preempt", "mirror", "rival", "fingerprint",
+        "opponent_supply", "_clone_distance", "_public_signature",
+        "_preempt_shift", "_front_run", "_opponent_visible_supply",
+        "_opponent_animal_counts"]
+color = "#56B4E9"
+
+# The closed-loop pole of discussion 733002: re-score candidate actions every
+# turn (urgency/gate/priority) instead of following a script.
+#
+# Also small (4 notebooks) and also left as-is: the corpus genuinely has no
+# closed-loop vocabulary to recall. best_action, score_action, action_score,
+# candidate_actions, legal_actions, rollout, lookahead and beam are all < 3
+# hits in 256 notebooks; simulate is 4, planner 7, reactive 3. The plausible
+# alternatives were tested and rejected — "threshold" (27) fires on
+# measurement write-ups ("Wins, not money", "Is Your New Agent Actually
+# Better?"), and "candidates" (41) fires on bovard/kaggriculture-getting-
+# started and romantamrazov/kaggriculture-hamburger, i.e. it is just a Python
+# idiom here. The forum's claim that the ladder is open-loop holds up.
+[[archetype]]
+name = "adaptive-controller"
+hard = ["adaptive", "controller", "urgency", "gate", "greedy"]
+color = "#E5B300"
+
+# Notebooks that study the game rather than submit an agent: replay/ladder
+# mining, head-to-head harnesses, ablations, holdout win rates.
+[[archetype]]
+name = "meta-analysis"
+hard = ["ladder", "win_rate", "holdout", "duel", "h2h", "run_match",
+        "run_episode", "matchup", "ablation", "counterfactual", "tournament",
+        "leaderboard", "elo"]
+color = "#999999"
+
+# Fallback for structured agents with no dominant strategy signal. Empty by
+# design: it is awarded by the scorer floor in wiki_hooks.py (see [hooks]),
+# never by keywords, and nb_tag.classify() looks for this exact name.
+#
+# TODO (out of scope for the keyword pass, needs wiki_hooks.py): the 35-notebook
+# "unknown" bucket that survives this config is exactly what this label is for.
+# All 35 parse, the median is 160 clean lines, and 16 have >= 3 functions — they
+# are structured agents, not empty kernels. There is no keyword fix: mining the
+# bucket against the rest of the corpus produces zero terms with >= 8 hits and
+# >= 55% precision, i.e. it has no shared vocabulary. Enabling the
+# score_archetypes() floor (parsed and n_funcs >= 3 -> 0.75) would move roughly
+# half of them here. The rest are blob-only submissions
+# (…-adaptive-replay-agent, …-read-the-market-choose-the-farm, "3094 score |
+# Kaggriculture": 892 lines, 0 functions) whose strategy code is inside a
+# base85 payload and is unreachable by any source-level feature.
+[[archetype]]
+name = "rule-based/heuristic"
+hard = []
+color = "#BBBBBB"
