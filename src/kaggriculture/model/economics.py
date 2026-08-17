@@ -5,10 +5,21 @@ see tests/model/test_economics.py. Sale prices are supplied by the caller (base 
 dynamic quote from `price.py`); this module never assumes the market is static.
 """
 
-from kaggriculture.model.constants import ANIMALS, CROPS, LAND_PRICES, hire_cost
+from kaggriculture.model.constants import ANIMALS, CROPS, FARM_HAND_COST_MULT, LAND_PRICES
 from kaggriculture.model.yields import ongoing_crop_production_days, one_time_crop_yield, watering_bonus_window
 
 TILES_PER_QUADRANT = 25  # 5x5, per wiki/competition/pages/how-to-play.md
+
+
+def fib(n: int) -> int:
+    """fib(0)=1, fib(1)=1, fib(2)=2, fib(3)=3, fib(4)=5, ... Standalone (not delegating to
+    constants._engine) so this module only needs *data* from constants, not vendor's live
+    functions — the packaged submission freezes constants to a data-only snapshot (see
+    kaggriculture.model.freeze) since vendor/ won't exist on Kaggle's grader."""
+    a, b = 1, 1
+    for _ in range(n):
+        a, b = b, a + b
+    return a
 
 
 def minimal_watering_schedule(crop: str) -> set[int]:
@@ -94,9 +105,9 @@ def animal_profit_per_action(animal: str, sale_price: float, care: bool, n_event
     return (revenue - cost) / actions
 
 
-def hand_cost(n_already_hired_today: int, mult: int | None = None) -> int:
+def hand_cost(n_already_hired_today: int, mult: int = FARM_HAND_COST_MULT) -> int:
     """Marginal cost of the next hire today: `farmHandCostMult * fib(n)`, resetting daily."""
-    return hire_cost(n_already_hired_today) if mult is None else hire_cost(n_already_hired_today, mult)
+    return mult * fib(n_already_hired_today)
 
 
 def land_unlock_cost(n_extra_quadrants_already_unlocked: int) -> int:

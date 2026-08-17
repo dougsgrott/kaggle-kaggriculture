@@ -139,15 +139,16 @@ Key reuse (all public, all permitted under rules 2.6 / 3.6.b):
 
 Get on the board immediately; path-dependence means a rating trajectory needs time to converge.
 
-- [ ] 1. `uv add kaggle-environments` (pin `>=1.32.7`), verify `make("kaggriculture")` runs.
-- [ ] 2. Vendor the engine source to `vendor/kaggriculture.py`, record the exact version and PR
+- [x] 1. `uv add kaggle-environments` (pin `>=1.32.7`), verify `make("kaggriculture")` runs.
+- [x] 2. Vendor the engine source to `vendor/kaggriculture.py`, record the exact version and PR
       level. Point `competition.toml`'s commented `[reference]` section at it (unlocks the
       clone/novel machinery that currently reports `0 novel` for all 256 notebooks).
-- [ ] 3. Accept competition rules on Kaggle; verify `kaggle competitions list --group entered`.
-- [ ] 4. Build `src/kaggriculture/model/` from the vendored source — not from the docs. Thread
+- [x] 3. Accept competition rules on Kaggle; verify `kaggle competitions list --group entered`.
+- [x] 4. Build `src/kaggriculture/model/` from the vendored source — not from the docs. Thread
       732450 catalogues six places where the docs and engine disagree.
-- [ ] 5. Ship **submission #1**: a corrected, 1.32.7-calibrated melon+CARE heuristic. Purpose is a
-      rating trajectory and an end-to-end submit path, not a good score.
+- [x] 5. Ship **submission #1**: a corrected, 1.32.7-calibrated melon+CARE heuristic. Purpose is a
+      rating trajectory and an end-to-end submit path, not a good score. (`baseline-v1`, Kaggle
+      submission 55582453, 2026-08-17.)
 - [ ] 6. Fill the wikikit gaps: `wikikit synth discussions`, `wikikit synth leaderboard`,
       `wikikit players`, `wikikit index` (the digests `wiki/index.md` links to don't exist yet).
       Install `wikikit cron` so the leaderboard snapshots daily — one snapshot means no Δ signal.
@@ -161,6 +162,15 @@ Nothing downstream is trustworthy without these.
       **exactly** for ≥200 episodes across seeds × the `{starter, random, pass}` agent pairs. Any
       divergence is a bug in the port, never in the engine. Target ≥1,000x real-env throughput on
       20 cores.
+      - [x] [007](issues/007-sim-core-port.md): the mechanical half — farm/tile/unit state, the
+            full per-unit action set, deterministic day refresh, the turn-loop skeleton. Compiles
+            clean; a standalone smoke check (not the parity gate) proves it links and runs.
+      - [ ] [008](issues/008-sim-market-town-port.md): market curve, order lockstep, town demand,
+            weed-spawn RNG.
+      - [ ] [009](issues/009-sim-bindings-runner.md): pybind11 bindings, parallel episode runner.
+      - [ ] [010](issues/010-sim-parity-validator.md): `validate.py` and the exact-parity gate
+            this item's acceptance criterion actually depends on. **Nothing from 007/008 is
+            trusted until this lands.**
 - [ ] 8. **R7 (part 1): evaluation harness.** Paired-seed, both-seat, common-random-numbers arena
       with Wilson CIs and a sequential stopping rule. It must answer "is B better than A" with a
       stated error rate, and must refuse to answer when n is too small. Also fixes the shop draw

@@ -6,7 +6,9 @@ not revenue. Exact dollar figures differ (that post uses a non-minimal watering 
 melon), so this only pins down the *ranking*, not the numbers.
 """
 
-from kaggriculture.model.constants import MARKET_PARAMS
+import random
+
+from kaggriculture.model.constants import MARKET_PARAMS, hire_cost
 from kaggriculture.model.economics import (
     animal_profit_per_action,
     hand_cost,
@@ -24,6 +26,14 @@ def _base(item: str) -> float:
 def test_hand_cost_is_fibonacci_resetting_daily():
     # fib(0)=1, 1, 2, 3, 5, 8, 13, 21 per how-to-play.md's worked example.
     assert [hand_cost(n) for n in range(8)] == [1, 1, 2, 3, 5, 8, 13, 21]
+
+
+def test_hand_cost_matches_vendored_engine():
+    rng = random.Random(0)
+    for _ in range(200):
+        n = rng.randint(0, 15)
+        mult = rng.randint(1, 5)
+        assert hand_cost(n, mult) == hire_cost(n, mult)
 
 
 def test_land_costs_and_marginal_tile_cost():
