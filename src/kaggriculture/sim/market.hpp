@@ -68,12 +68,15 @@ void town_consume(MarketTownState& market, int step, const MarketConfig& cfg);
 // vendor's `_spawn_weeds` for one player. Reseeds `market.rng` from `state.seed`/`day` on first
 // use each day, so callers must invoke this for player 0 before player 1 (see sim.hpp's
 // WeedSpawnHook comment) -- step_full_turn does this correctly; call directly only if you
-// preserve that order yourself.
-void spawn_weeds(GameState& state, MarketTownState& market, int player, int day, const MarketConfig& cfg);
+// preserve that order yourself. Returns the number of tiles that turned into weeds this call
+// (issue 009's episode runner reports this per player/day as part of the realized scenario).
+int spawn_weeds(GameState& state, MarketTownState& market, int player, int day, const MarketConfig& cfg);
 
 // vendor's with-replacement shop-unlock draw, run once after both players' spawn_weeds for the
 // day. Continues `market.rng` rather than reseeding -- must run after both spawn_weeds calls.
-void unlock_shop(MarketTownState& market, int day, const MarketConfig& cfg);
+// Returns the ShopType index drawn, or -1 if no draw happened this day (not a scheduled unlock
+// day, or MAX_SHOP_INSTANCES already reached).
+int unlock_shop(MarketTownState& market, int day, const MarketConfig& cfg);
 
 // The full turn loop: unit actions (sim.hpp) -> market queue + town buys (this file) -> per-step
 // decay (sim.hpp) -> day refresh, mechanical (sim.hpp) then stochastic (this file), on the day

@@ -263,30 +263,34 @@ void town_consume(MarketTownState& market, int step, const MarketConfig& cfg) {
     }
 }
 
-void spawn_weeds(GameState& state, MarketTownState& market, int player, int day, const MarketConfig& cfg) {
+int spawn_weeds(GameState& state, MarketTownState& market, int player, int day, const MarketConfig& cfg) {
     if (day != market.rng_day) {
         market.rng.seed((state.seed * 1000003ULL) ^ static_cast<uint64_t>(day));
         market.rng_day = day;
     }
+    int spawned = 0;
     Farm& farm = state.farms[player];
     for (int y = 0; y < state.board_size; y++) {
         for (int x = 0; x < state.board_size; x++) {
             if (farm.tiles[y][x].kind == TileKind::EMPTY && market.rng.random() < cfg.weed_spawn_chance) {
                 farm.tiles[y][x] = Tile{};
                 farm.tiles[y][x].kind = TileKind::WEED;
+                spawned++;
             }
         }
     }
+    return spawned;
 }
 
-void unlock_shop(MarketTownState& market, int day, const MarketConfig& cfg) {
+int unlock_shop(MarketTownState& market, int day, const MarketConfig& cfg) {
     int shop_interval = std::max(1, cfg.town_shop_unlock_interval);
     int next_day = day + 1;
-    if (next_day % shop_interval != 0) return;
-    if (market.n_shops_unlocked >= MAX_SHOP_INSTANCES) return;
+    if (next_day % shop_interval != 0) return -1;
+    if (market.n_shops_unlocked >= MAX_SHOP_INSTANCES) return -1;
     uint32_t idx = market.rng.choice_index(static_cast<uint32_t>(ShopType::COUNT));
     market.shop_count[idx] += 1;
     market.n_shops_unlocked += 1;
+    return static_cast<int>(idx);
 }
 
 void step_full_turn(GameState& state, MarketTownState& market, const TurnInput& input, const MarketConfig& cfg) {

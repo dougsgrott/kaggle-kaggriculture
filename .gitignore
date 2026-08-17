@@ -6,6 +6,9 @@ dist/
 wheels/
 *.egg-info
 
+# Compiled C++ extension (issue 009) -- built by `uv sync` via setup.py, never checked in.
+*.so
+
 # Virtual environments
 .venv
 .env
@@ -28,3 +31,6 @@ pipeline.py
 
 *.csv
 *.json
+# ...except the vendored engine spec (issue 002): model/constants.py loads it at import time,
+# so a git clone missing it silently breaks kaggriculture.model and everything built on it.
+!vendor/kaggriculture.json
