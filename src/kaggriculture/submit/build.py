@@ -13,9 +13,11 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_AGENT = REPO_ROOT / "src" / "kaggriculture" / "agents" / "current.py"
+MODEL_DIR = REPO_ROOT / "src" / "kaggriculture" / "model"
 SUBMISSIONS_DIR = REPO_ROOT / "submissions"
 
 _FORBIDDEN_IMPORT = re.compile(r"^\s*(from\s+kaggriculture|import\s+kaggriculture)\b", re.MULTILINE)
+_MODEL_IMPORT = re.compile(r"from kaggriculture\.model(?:\.(\w+))? import")
 
 
 class SelfContainmentError(RuntimeError):
@@ -34,6 +36,51 @@ def _check_self_contained(path: Path) -> None:
             f"{path} imports the kaggriculture package ({match.group(0)!r}); "
             "/kaggle_simulations/agent/ won't have it installed."
         )
+
+
+def _flatten_model_imports(text: str) -> str:
+    """`from kaggriculture.model.X import y` -> `from X import y`: what a bundle's sibling
+    model modules need once they're unpacked flat into /kaggle_simulations/agent/."""
+    return _MODEL_IMPORT.sub(lambda m: f"from {m.group(1)} import", text)
+
+
+def build_bundle(
+    tag: str | None = None,
+    agent_path: Path = REPO_ROOT / "src" / "kaggriculture" / "agents" / "baseline.py",
+    model_modules: tuple[str, ...] = ("constants", "price", "yields", "economics"),
+) -> Path:
+    """Package an agent that imports the *bundled, flattened* model modules by bare name
+    (`import constants`, `from price import price`, ...) into submissions/<tag>/submission.tar.gz.
+
+    `constants` is special-cased: the real model/constants.py loads vendor/kaggriculture.py from
+    an absolute repo path that won't exist on Kaggle's grader, so it's replaced with a frozen,
+    data-only snapshot (kaggriculture.model.freeze) instead of being flattened like the others.
+    """
+    from kaggriculture.model.freeze import frozen_constants_source
+
+    tag = tag or default_tag()
+    out_dir = SUBMISSIONS_DIR / tag
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    written = []
+    main_py = out_dir / "main.py"
+    main_py.write_text(_flatten_model_imports(agent_path.read_text()))
+    written.append(main_py)
+
+    for name in model_modules:
+        content = frozen_constants_source() if name == "constants" else _flatten_model_imports((MODEL_DIR / f"{name}.py").read_text())
+        path = out_dir / f"{name}.py"
+        path.write_text(content)
+        written.append(path)
+
+    for path in written:
+        _check_self_contained(path)
+
+    archive = out_dir / "submission.tar.gz"
+    with tarfile.open(archive, "w:gz") as tar:
+        for path in written:
+            tar.add(path, arcname=path.name)
+    return archive
 
 
 def build(tag: str | None = None, agent_path: Path = DEFAULT_AGENT, extra_paths: tuple[Path, ...] = ()) -> Path:

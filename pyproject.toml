@@ -15,9 +15,17 @@ dependencies = [
 [project.scripts]
 kaggriculture = "kaggriculture:main"
 
+# Switched from uv_build (pure-Python only) to setuptools + pybind11 in issue 009: the C++ sim
+# needs a compiled extension (src/kaggriculture/sim/_sim_native), and this machine has no cmake
+# -- pybind11.setup_helpers.Pybind11Extension builds via plain setuptools/g++, no cmake needed.
+# See setup.py for the extension definition; `uv sync` / `uv build` drive it automatically via
+# the standard PEP 517 build_ext hook, same as any other compiled-extension package.
 [build-system]
-requires = ["uv_build>=0.12.3,<0.13.0"]
-build-backend = "uv_build"
+requires = ["setuptools>=69", "pybind11>=2.12"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.uv.sources]
 kaggle-wiki-kit = { path = "../kaggle-wiki-kit", editable = true }
@@ -26,3 +34,12 @@ kaggle-wiki-kit = { path = "../kaggle-wiki-kit", editable = true }
 dev = [
     "pytest>=9.1.1",
 ]
+
+# Issue 010: the full parity sweep (>=200 episodes against the real engine) takes minutes, not
+# seconds, dominated by the real engine's own per-episode cost -- skip it by default so `uv run
+# pytest` stays fast, and require an explicit opt-in for the thing that's actually the gate.
+[tool.pytest.ini_options]
+markers = [
+    "slow: multi-minute tests (the full parity sweep); opt in with `pytest -m slow`",
+]
+addopts = "-m 'not slow'"

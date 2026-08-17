@@ -139,15 +139,16 @@ Key reuse (all public, all permitted under rules 2.6 / 3.6.b):
 
 Get on the board immediately; path-dependence means a rating trajectory needs time to converge.
 
-- [ ] 1. `uv add kaggle-environments` (pin `>=1.32.7`), verify `make("kaggriculture")` runs.
-- [ ] 2. Vendor the engine source to `vendor/kaggriculture.py`, record the exact version and PR
+- [x] 1. `uv add kaggle-environments` (pin `>=1.32.7`), verify `make("kaggriculture")` runs.
+- [x] 2. Vendor the engine source to `vendor/kaggriculture.py`, record the exact version and PR
       level. Point `competition.toml`'s commented `[reference]` section at it (unlocks the
       clone/novel machinery that currently reports `0 novel` for all 256 notebooks).
-- [ ] 3. Accept competition rules on Kaggle; verify `kaggle competitions list --group entered`.
-- [ ] 4. Build `src/kaggriculture/model/` from the vendored source — not from the docs. Thread
+- [x] 3. Accept competition rules on Kaggle; verify `kaggle competitions list --group entered`.
+- [x] 4. Build `src/kaggriculture/model/` from the vendored source — not from the docs. Thread
       732450 catalogues six places where the docs and engine disagree.
-- [ ] 5. Ship **submission #1**: a corrected, 1.32.7-calibrated melon+CARE heuristic. Purpose is a
-      rating trajectory and an end-to-end submit path, not a good score.
+- [x] 5. Ship **submission #1**: a corrected, 1.32.7-calibrated melon+CARE heuristic. Purpose is a
+      rating trajectory and an end-to-end submit path, not a good score. (`baseline-v1`, Kaggle
+      submission 55582453, 2026-08-17.)
 - [ ] 6. Fill the wikikit gaps: `wikikit synth discussions`, `wikikit synth leaderboard`,
       `wikikit players`, `wikikit index` (the digests `wiki/index.md` links to don't exist yet).
       Install `wikikit cron` so the leaderboard snapshots daily — one snapshot means no Δ signal.
@@ -156,11 +157,36 @@ Get on the board immediately; path-dependence means a rating trajectory needs ti
 
 Nothing downstream is trustworthy without these.
 
-- [ ] 7. **R1: C++ simulator.** Port `kaggriculture.py` to `src/kaggriculture/sim/`, pybind11
+- [x] 7. **R1: C++ simulator.** Port `kaggriculture.py` to `src/kaggriculture/sim/`, pybind11
       bindings. Acceptance gate: `validate.py` reproduces money + market-inventory trajectories
       **exactly** for ≥200 episodes across seeds × the `{starter, random, pass}` agent pairs. Any
       divergence is a bug in the port, never in the engine. Target ≥1,000x real-env throughput on
-      20 cores.
+      20 cores. **Gate passed: 207/207 episodes, exact, 2026-08-17. The sim is trusted for P2/P3.**
+      - [x] [007](issues/007-sim-core-port.md): the mechanical half — farm/tile/unit state, the
+            full per-unit action set, deterministic day refresh, the turn-loop skeleton. Compiles
+            clean; a standalone smoke check (not the parity gate) proves it links and runs.
+      - [x] [008](issues/008-sim-market-town-port.md): market curve, order lockstep, HIRE/BUY_LAND,
+            town demand, weed-spawn RNG. Includes a from-scratch bit-exact port of CPython's
+            `random.Random` (`pyrandom.hpp`), verified against live Python output — needed because
+            weed-spawn and shop-unlock draws share one RNG stream per day, which is also why 008
+            doesn't integrate through 007's hooks (see 008's Revision note). Compiles clean;
+            smoke checks (not the parity gate) prove the price table, buy/sell round-trip, HIRE
+            cost curve, and town drain all match by-hand-traced vendor values.
+      - [x] [009](issues/009-sim-bindings-runner.md): pybind11 bindings (`run_episode`,
+            `run_batch`, `TapePolicy`, `CallbackPolicy`, `advance_turns` for branching search),
+            wired into `pyproject.toml` (switched build backend to setuptools+pybind11 — no cmake
+            on this machine). Verified in an isolated clean-checkout copy. Measured **~3,500x**
+            single-thread / **~31,500x** at 20 threads over the real engine, 116 MB peak RSS for
+            50k episodes — both acceptance numbers cleared by a wide margin.
+      - [x] [010](issues/010-sim-parity-validator.md): `export_trace.py` + `validate.py`, the
+            exact-parity gate this item's acceptance criterion depends on. **207/207 episodes
+            passed exactly** (23 seeds × 9 `{starter,random,pass}` pairings, both seat orders,
+            every step's money and market inventory). Verified the gate actually catches bugs:
+            injected a real off-by-one into `sim.cpp` (weed threshold 2→3), confirmed the sweep
+            caught and localized it to the correct step, reverted. Found along the way: vendor's
+            `random_agent` seeds itself from OS entropy, not the episode seed — a `random`-
+            involving trace isn't reproducible across separate exports (harmless here; worth
+            knowing before 011/012 assume otherwise).
 - [ ] 8. **R7 (part 1): evaluation harness.** Paired-seed, both-seat, common-random-numbers arena
       with Wilson CIs and a sequential stopping rule. It must answer "is B better than A" with a
       stated error rate, and must refuse to answer when n is too small. Also fixes the shop draw
@@ -244,10 +270,11 @@ Run R2–R4 in parallel; they decompose cleanly.
 
 ## Verification
 
-- **Engine parity (P0/P1, hard gate):** `uv run python -m kaggriculture.sim.validate --episodes 200`
+- **Engine parity (P0/P1, hard gate):** `uv run python -m kaggriculture.sim.validate --seeds 23`
   — the C++ sim must reproduce per-step money and market inventory bit-for-bit against
   `kaggle_environments` for ≥200 episodes across seeds and `{starter, random, pass}` pairings.
-  Non-exact output blocks all downstream work.
+  Non-exact output blocks all downstream work. **Passed 2026-08-17: 207/207.** Re-run after any
+  change to `sim/` or any `kaggle-environments` version bump — a pass is a snapshot, not a grant.
 - **Model parity:** unit tests asserting `model.price(item, inv)` and the profit-per-action table
   match values computed by the vendored engine, and that the `P(I0−T)/P(I0+T)/P(I0+2T)` column of
   the how-to-play price table reproduces exactly under 1.32.7.
