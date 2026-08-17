@@ -107,6 +107,16 @@ enum class Crop : uint8_t { WHEAT, CARROT, TOMATO, STRAWBERRY, MELON, COUNT };
 enum class Animal : uint8_t { GOOSE, COW, SHEEP, COUNT };
 enum class Structure : uint8_t { COOP, PASTURE };  // matches AnimalDef::structure / TileKind::COOP,PASTURE
 
+// Item <-> Crop/Animal conversions, relied on by both this file and market.hpp (issue 008):
+// Item indices [0, N_CROPS) are WHEAT..MELON, matching Crop exactly; indices [N_PRODUCTS,
+// N_ITEMS) are GOOSE..SHEEP, i.e. Item index - N_PRODUCTS = Animal.
+constexpr int crop_index(Item item) { return static_cast<int>(item); }
+constexpr bool is_crop_item(Item item) { return crop_index(item) < N_CROPS; }
+constexpr Item item_of_crop(Crop c) { return static_cast<Item>(static_cast<int>(c)); }
+constexpr int animal_index(Item item) { return static_cast<int>(item) - N_PRODUCTS; }
+constexpr bool is_animal_item(Item item) { return static_cast<int>(item) >= N_PRODUCTS; }
+constexpr Item item_of_animal(Animal a) { return static_cast<Item>(N_PRODUCTS + static_cast<int>(a)); }
+
 // (dx, dy); y grows downward, matching vendor's FARMER_MOVES.
 struct Delta {
     int8_t dx;
@@ -229,6 +239,20 @@ void apply_unit_action(Farm& farm, Private& priv, int unit_idx, UnitAction actio
 // requests are replaced with PASS before any unit acts. Mutates `actions` in place.
 void apply_plant_oversubscription_guard(UnitAction actions[MAX_UNITS_PER_PLAYER], int n_units, const Private& priv);
 
+struct TurnInput {
+    UnitAction unit_actions[N_PLAYERS][MAX_UNITS_PER_PLAYER]{};  // index 0 = farmer
+    int n_units_acting[N_PLAYERS] = {1, 1};                      // how many of the above are live
+    MarketOrder market_orders[N_PLAYERS][MAX_MARKET_ORDERS]{};
+    int n_market_orders[N_PLAYERS] = {0, 0};
+};
+
+// The player-actions stage of interpreter(), for both players: the oversubscription guard then
+// apply_unit_action per unit. Exposed as its own building block (not just inlined in step_turn)
+// because issue 008's full turn loop needs to interleave this with market/town processing that
+// carries state step_turn's plain-function-pointer hooks can't (an RNG generator has to persist
+// across a whole day's weed-spawn + shop-unlock calls) -- see step_turn's comment.
+void apply_all_unit_actions(GameState& state, const TurnInput& input, int day);
+
 // ---------------------------------------------------------------------------------------------
 // Per-step and day-refresh mechanics (vendor's _decay_plants / _daily_refresh_plants /
 // _daily_refresh_animals / _drop_inventories_to_shed). All deterministic -- no RNG.
@@ -245,8 +269,13 @@ void drop_inventories_to_shed(Private& priv, int n_units, int shed_capacity);
 void end_of_day_mechanical(Farm& farm, Private& priv, int day, int board_size, int turns_per_day, int shed_capacity);
 
 // ---------------------------------------------------------------------------------------------
-// The seam: issue 008 supplies these. Defaults are no-ops so this file compiles and step_turn()
-// runs a full, legal (if economically inert) season on its own.
+// The seam, for step_turn() below: issue 008 *could* plug in through these hooks, but in
+// practice doesn't -- a plain function pointer has no way to carry the persistent RNG generator
+// 008's weed-spawn/shop-unlock draws need across a day (see WeedSpawnHook's comment), so 008
+// instead defines its own full-turn orchestration (market.hpp's step_full_turn) that calls
+// apply_all_unit_actions/decay_plants/end_of_day_mechanical directly rather than going through
+// step_turn. step_turn + these no-op defaults remain here as this file's own standalone smoke
+// check (smoke_main.cpp) -- a legal, if economically inert, season with no issue-008 code at all.
 // ---------------------------------------------------------------------------------------------
 
 // Runs the market-order queue (SELL/BUY_*/HIRE/BUY_LAND lockstep) and town consumption for this
@@ -276,15 +305,8 @@ void default_shop_unlock_hook(GameState& state, int day);
 // semantics of apply_unit_action/apply_plant_oversubscription_guard) -> player actions ->
 // market queue -> town buys -> [market refresh, income update happen inside the market/town
 // hook] -> per-step decay -> day refresh (mechanical, then stochastic) on the day boundary ->
-// advance step.
+// advance step. TurnInput is declared above, next to apply_all_unit_actions.
 // ---------------------------------------------------------------------------------------------
-struct TurnInput {
-    UnitAction unit_actions[N_PLAYERS][MAX_UNITS_PER_PLAYER]{};  // index 0 = farmer
-    int n_units_acting[N_PLAYERS] = {1, 1};                      // how many of the above are live
-    MarketOrder market_orders[N_PLAYERS][MAX_MARKET_ORDERS]{};
-    int n_market_orders[N_PLAYERS] = {0, 0};
-};
-
 void step_turn(GameState& state, const TurnInput& input, MarketAndTownHook market_and_town = default_market_and_town_hook,
                WeedSpawnHook weed_spawn = default_weed_spawn_hook, ShopUnlockHook shop_unlock = default_shop_unlock_hook);
 

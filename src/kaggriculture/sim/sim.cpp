@@ -10,16 +10,6 @@ namespace kaggriculture::sim {
 
 namespace {
 
-// Item indices [0, N_CROPS) are WHEAT..MELON, matching Crop exactly (see sim.hpp).
-inline int crop_index(Item item) { return static_cast<int>(item); }
-inline bool is_crop_item(Item item) { return crop_index(item) < N_CROPS; }
-inline Item item_of_crop(Crop c) { return static_cast<Item>(static_cast<int>(c)); }
-
-// Item indices [N_PRODUCTS, N_ITEMS) are GOOSE..SHEEP, i.e. Item index - N_PRODUCTS = Animal.
-inline int animal_index(Item item) { return static_cast<int>(item) - N_PRODUCTS; }
-inline bool is_animal_item(Item item) { return static_cast<int>(item) >= N_PRODUCTS; }
-inline Item item_of_animal(Animal a) { return static_cast<Item>(N_PRODUCTS + static_cast<int>(a)); }
-
 inline TileKind structure_kind(Structure s) { return s == Structure::COOP ? TileKind::COOP : TileKind::PASTURE; }
 
 inline PlantTile new_plant(Crop crop, int day, int turns_per_day) {
@@ -360,6 +350,20 @@ void apply_plant_oversubscription_guard(UnitAction actions[MAX_UNITS_PER_PLAYER]
     }
 }
 
+void apply_all_unit_actions(GameState& state, const TurnInput& input, int day) {
+    for (int p = 0; p < N_PLAYERS; p++) {
+        Farm& farm = state.farms[p];
+        Private& priv = state.privates[p];
+        int n = input.n_units_acting[p];
+        UnitAction actions[MAX_UNITS_PER_PLAYER];
+        for (int u = 0; u < n; u++) actions[u] = input.unit_actions[p][u];
+        apply_plant_oversubscription_guard(actions, n, priv);
+        for (int u = 0; u < n; u++) {
+            apply_unit_action(farm, priv, u, actions[u], state.board_size, day, state.turns_per_day, state.shed_capacity);
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Per-step and day-refresh mechanics
 // ---------------------------------------------------------------------------------------------
@@ -482,17 +486,7 @@ void step_turn(GameState& state, const TurnInput& input, MarketAndTownHook marke
                ShopUnlockHook shop_unlock) {
     int day = state.step / state.turns_per_day;
 
-    for (int p = 0; p < N_PLAYERS; p++) {
-        Farm& farm = state.farms[p];
-        Private& priv = state.privates[p];
-        int n = input.n_units_acting[p];
-        UnitAction actions[MAX_UNITS_PER_PLAYER];
-        for (int u = 0; u < n; u++) actions[u] = input.unit_actions[p][u];
-        apply_plant_oversubscription_guard(actions, n, priv);
-        for (int u = 0; u < n; u++) {
-            apply_unit_action(farm, priv, u, actions[u], state.board_size, day, state.turns_per_day, state.shed_capacity);
-        }
-    }
+    apply_all_unit_actions(state, input, day);
 
     market_and_town(state, input.market_orders, input.n_market_orders, state.step);
 

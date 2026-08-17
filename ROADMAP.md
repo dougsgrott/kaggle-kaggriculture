@@ -165,8 +165,13 @@ Nothing downstream is trustworthy without these.
       - [x] [007](issues/007-sim-core-port.md): the mechanical half — farm/tile/unit state, the
             full per-unit action set, deterministic day refresh, the turn-loop skeleton. Compiles
             clean; a standalone smoke check (not the parity gate) proves it links and runs.
-      - [ ] [008](issues/008-sim-market-town-port.md): market curve, order lockstep, town demand,
-            weed-spawn RNG.
+      - [x] [008](issues/008-sim-market-town-port.md): market curve, order lockstep, HIRE/BUY_LAND,
+            town demand, weed-spawn RNG. Includes a from-scratch bit-exact port of CPython's
+            `random.Random` (`pyrandom.hpp`), verified against live Python output — needed because
+            weed-spawn and shop-unlock draws share one RNG stream per day, which is also why 008
+            doesn't integrate through 007's hooks (see 008's Revision note). Compiles clean;
+            smoke checks (not the parity gate) prove the price table, buy/sell round-trip, HIRE
+            cost curve, and town drain all match by-hand-traced vendor values.
       - [ ] [009](issues/009-sim-bindings-runner.md): pybind11 bindings, parallel episode runner.
       - [ ] [010](issues/010-sim-parity-validator.md): `validate.py` and the exact-parity gate
             this item's acceptance criterion actually depends on. **Nothing from 007/008 is

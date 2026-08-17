@@ -11,7 +11,7 @@ dicts already use, so no reordering happens here, just a format change.
 
 from pathlib import Path
 
-from kaggriculture.model.constants import ANIMALS, CROPS
+from kaggriculture.model.constants import ANIMALS, CONFIG_DEFAULTS, CROPS, LAND_PRICES, MARKET_PARAMS, MAX_SHOP_INSTANCES, SHOPS
 
 OUT_PATH = Path(__file__).parent / "constants_generated.hpp"
 
@@ -24,6 +24,13 @@ _ITEM_INDEX = {
     "WHEAT": 0, "CARROT": 1, "TOMATO": 2, "STRAWBERRY": 3, "MELON": 4,
     "EGG": 5, "MILK": 6, "WOOL": 7, "FERTILIZER": 8, "GOOSE": 9, "COW": 10, "SHEEP": 11,
 }
+# Item enum order restricted to the 9 tradeable PRODUCTS (Item indices [0, N_PRODUCTS)).
+_PRODUCT_ORDER = ["WHEAT", "CARROT", "TOMATO", "STRAWBERRY", "MELON", "EGG", "MILK", "WOOL", "FERTILIZER"]
+_SHAPE_INDEX = {"linear": 0, "sq": 1, "sqrt": 2, "log": 3, "log10": 4, "hinge": 5}
+# ShopType enum order: vendor's own `sorted(SHOPS)` -- the exact draw pool `rng.choice` samples
+# from in `_end_of_day`. Must match, not just "some fixed order".
+_SHOP_ORDER = sorted(SHOPS)
+_MAX_SHOP_PRODUCTS = max(len(v) for v in SHOPS.values())
 
 
 def generate() -> str:
@@ -37,6 +44,7 @@ def generate() -> str:
         "#pragma once",
         "",
         "#include <array>",
+        "#include <cstdint>",
         "",
         "namespace kaggriculture::sim {",
         "",
@@ -83,6 +91,74 @@ def generate() -> str:
         )
     lines += [
         "}};",
+        "",
+        "enum class ShapeFunc : uint8_t { LINEAR, SQ, SQRT, LOG, LOG10, HINGE };",
+        "",
+        "struct MarketParamDef {",
+        "    int base;",
+        "    int I0;",
+        "    int T;",
+        "    ShapeFunc below_func;",
+        "    double below_target;",
+        "    ShapeFunc above_func;",
+        "    double above_target;",
+        "};",
+        "",
+        "// Order: the 9 PRODUCTS, i.e. Item indices [0, N_PRODUCTS) -- WHEAT..FERTILIZER.",
+        "constexpr std::array<MarketParamDef, 9> MARKET_PARAMS = {{",
+    ]
+    for name in _PRODUCT_ORDER:
+        p = MARKET_PARAMS[name]
+        below = _SHAPE_INDEX[p["below_func"]]
+        above = _SHAPE_INDEX[p["above_func"]]
+        lines.append(
+            f"    {{{p['base']}, {p['I0']}, {p['T']}, "
+            f"static_cast<ShapeFunc>({below}), {p['below_target']}, "
+            f"static_cast<ShapeFunc>({above}), {p['above_target']}}},  // {name}"
+        )
+    lines += [
+        "}};",
+        "",
+        f"struct ShopDef {{",
+        "    int n_products;",
+        f"    int products[{_MAX_SHOP_PRODUCTS}];  // Item indices; only the first n_products entries are valid",
+        "};",
+        "",
+        "// ShopType enum order: vendor's `sorted(SHOPS)` -- the exact pool `rng.choice` draws from.",
+        "enum class ShopType : uint8_t { " + ", ".join(_SHOP_ORDER) + ", COUNT };",
+        "",
+        f"constexpr std::array<ShopDef, {len(_SHOP_ORDER)}> SHOPS = {{{{",
+    ]
+    for name in _SHOP_ORDER:
+        products = SHOPS[name]
+        idxs = [str(_ITEM_INDEX[p]) for p in products]
+        padded = idxs + ["0"] * (_MAX_SHOP_PRODUCTS - len(idxs))
+        lines.append(f"    {{{len(products)}, {{{', '.join(padded)}}}}},  // {name}: {', '.join(products)}")
+    lines += [
+        "}};",
+        "",
+        "// Cost of the n-th quadrant unlocked beyond NW (n=0 -> NE, 1 -> SW, 2 -> SE in",
+        "// quadrant_of()'s indexing -- vendor's LAND_ORDER is exactly quadrant indices 1,2,3).",
+        f"constexpr std::array<int, 3> LAND_PRICES = {{{{{', '.join(str(v) for v in LAND_PRICES)}}}}};",
+        "",
+        f"constexpr int MAX_SHOP_INSTANCES = {MAX_SHOP_INSTANCES};",
+        "",
+        "// Configuration defaults (vendor/kaggriculture.json's schema `default` fields, via",
+        "// kaggriculture.model.constants.CONFIG_DEFAULTS -- the engine reads each of these inline",
+        "// via `get(cfg, \"key\", default)` rather than one dict; this is the single collected copy.",
+        "namespace config_defaults {",
+        f"constexpr int BOARD_SIZE = {CONFIG_DEFAULTS['boardSize']};",
+        f"constexpr double STARTING_MONEY = {CONFIG_DEFAULTS['startingMoney']}.0;",
+        f"constexpr int MAX_MARKET_ORDERS_PER_TURN = {CONFIG_DEFAULTS['maxMarketOrdersPerTurn']};",
+        f"constexpr int TURNS_PER_DAY = {CONFIG_DEFAULTS['turnsPerDay']};",
+        f"constexpr int SHED_CAPACITY = {CONFIG_DEFAULTS['shedCapacity']};",
+        f"constexpr double WEED_SPAWN_CHANCE = {CONFIG_DEFAULTS['weedSpawnChance']};",
+        f"constexpr int TOWN_SHOP_UNLOCK_INTERVAL = {CONFIG_DEFAULTS['townShopUnlockInterval']};",
+        f"constexpr int TOWN_SHOP_SELL_INTERVAL = {CONFIG_DEFAULTS['townShopSellInterval']};",
+        f"constexpr int TOWN_CENTER_SELL_INTERVAL = {CONFIG_DEFAULTS['townCenterSellInterval']};",
+        f"constexpr int FARM_HAND_COST_MULT = {CONFIG_DEFAULTS['farmHandCostMult']};",
+        f"constexpr int EPISODE_STEPS = {CONFIG_DEFAULTS['episodeSteps']};",
+        "}  // namespace config_defaults",
         "",
         "}  // namespace kaggriculture::sim",
         "",
