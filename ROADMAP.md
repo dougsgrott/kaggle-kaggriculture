@@ -199,9 +199,25 @@ Nothing downstream is trustworthy without these.
       fixed-n 55%-effect test would need); byte-identical policies (including non-trivial ones —
       `baseline` vs `baseline`) correctly land at an undecided 50%-centered CI once ties score 0.5
       rather than counting as non-wins.
-- [ ] 9. **Scenario taxonomy.** Enumerate the shop-draw distribution (8 instances, sampled with
+- [x] 9. **Scenario taxonomy.** Enumerate the shop-draw distribution (8 instances, sampled with
       replacement from 8 shop types) and cluster it into a handful of demand regimes. This is the
       input to R6 and it did not exist before PR #1394.
+      [012](issues/012-scenario-taxonomy.md): `model/regimes.py`. Viability threshold = crossing
+      the `hinge` shape's knee under zero production, verified two independent ways (pure-Python
+      model + the parity-gated native sim) — reproduces the organizer's stated carrot/egg
+      frequencies almost exactly (26%/22%), tomato measures ~53% vs their stated "50%" (treated as
+      their rounding, not a bug — see 012's Revision note). Clustering needed to exclude
+      WHEAT/STRAWBERRY/MILK/MELON (demanded by 3-5 of 8 shop types, or 0 for melon — too
+      universal/constant to differentiate regimes) and cluster on the genuinely sparse
+      CARROT/TOMATO/EGG/WOOL instead (1-2 shop types each): four named, balanced (22-30%) regimes
+      emerge (`wool-rich`, `tomato+wool-rich`, `wool+carrot-rich`, `wool+egg-rich`) instead of one
+      dominant blob. Regime identifiable with >=80% accuracy from partial shop-unlock info by
+      **day 15** — between the day-9 and day-24 bounds the issue asked to distinguish between.
+      Wired into 011's `eval.arena --regimes`, replacing its placeholder classifier.
+
+**P1 complete as of 2026-08-17** (issues 007-012): the C++ sim is parity-gated and trusted, the
+eval arena can make a statistically honest "is B better than A" call, and the demand-regime
+taxonomy R6/021 need exists. P2's search lines (below) can start.
 
 ### P2 — Offline optimization (Aug 26 – Sep 10) — the main scoring push
 

@@ -17,6 +17,7 @@ from pathlib import Path
 
 from kaggriculture.eval.agents import resolve_policy
 from kaggriculture.eval.stats import SPRTResult, WilsonInterval, sprt, verdict, wilson_interval
+from kaggriculture.model.regimes import N_SLOTS, RegimeSet, Scenario, demand_curve, fit_regimes, sample_scenarios
 from kaggriculture.sim import _sim_native as native
 from kaggriculture.sim.decode import default_config_dict, episode_config
 
@@ -41,18 +42,34 @@ def _outcome_class(o: GameOutcome) -> str:
     return "tie"
 
 
-def classify_regime(result: native.EpisodeResult) -> str:
-    """Placeholder scenario classifier, pending issue 012's real demand-regime taxonomy: buckets
-    by which shop type was drawn most often this episode (or "none" if none unlocked). Coarse on
-    purpose -- swap for issue 012's clustering once it exists; this exists so scenario-stratified
-    reporting has *something* to stratify by today rather than nothing."""
-    if not result.shop_draw_order:
-        return "none"
-    counts: dict[int, int] = {}
-    for shop in result.shop_draw_order:
-        counts[shop] = counts.get(shop, 0) + 1
-    dominant = max(counts, key=lambda k: counts[k])
-    return native.ShopType(dominant).name
+_DEFAULT_REGIME_SET: RegimeSet | None = None
+
+
+def default_regime_set() -> RegimeSet:
+    """Fit once per process and cache -- issue 012's taxonomy, sampled at a size (20k scenarios)
+    that gives stable cluster centroids; costs a few seconds the first time `--regimes` is used,
+    nothing after."""
+    global _DEFAULT_REGIME_SET
+    if _DEFAULT_REGIME_SET is None:
+        _DEFAULT_REGIME_SET = fit_regimes(sample_scenarios(20_000))
+    return _DEFAULT_REGIME_SET
+
+
+def classify_regime(result: native.EpisodeResult, regime_set: RegimeSet) -> str:
+    """issue 012's real demand-regime taxonomy, applied to the shop draw a *played* episode
+    actually experienced. Reconstructs the draw from `shop_draw_order` (the shop types unlocked,
+    in slot order) and recomputes its zero-production demand curve rather than reading the
+    episode's own `daily_inventory` -- a regime is a property of the *world* a game was drawn
+    into, not of what the two policies did with it, and the actual inventory trajectory is
+    confounded by whatever they bought and sold."""
+    draw = [native.ShopType(idx).name for idx in result.shop_draw_order]
+    if len(draw) < N_SLOTS:
+        # A short (< ~24-day) episode won't have drawn all 8 slots; classify on what's known.
+        label = regime_set.classify_partial(draw)
+    else:
+        scenario = Scenario(seed=result.seed, draw=draw, cumulative=demand_curve(draw))
+        label = regime_set.classify(scenario)
+    return next(r.name for r in regime_set.regimes if r.label == label)
 
 
 @dataclass
@@ -96,10 +113,15 @@ def compare(
     n_threads: int = 1,
     p1: float = 0.55,
     max_n_for_sprt: int | None = None,
+    use_regimes: bool = False,
 ) -> ArenaResult:
     """Runs `n_seeds` seeds, each seed played twice (policy_a in both seats) -- paired seeds,
     both seats, so seat and per-seed world luck cancel between the two orientations rather than
     confounding the comparison. `n_games = 2 * n_seeds`.
+
+    `use_regimes` turns on issue 012's scenario-stratified reporting (`by_regime`); off by
+    default since fitting the taxonomy costs a few seconds the first time (cached after that,
+    see default_regime_set()) that a quick comparison shouldn't have to pay for.
     """
     t0 = time.perf_counter()
     config_dict = default_config_dict()
@@ -129,10 +151,12 @@ def compare(
 
     results = native.run_batch(pairs, configs, seed_list, n_threads)
 
+    regime_set = default_regime_set() if use_regimes else None
     outcomes = []
     for seed, a_seat, result in zip(seed_list, orientations, results):
         a_money, b_money = (result.final_money[0], result.final_money[1]) if a_seat == 0 else (result.final_money[1], result.final_money[0])
-        outcomes.append(GameOutcome(seed=seed, a_seat=a_seat, a_money=a_money, b_money=b_money, regime=classify_regime(result)))
+        regime = classify_regime(result, regime_set) if regime_set is not None else "unclassified"
+        outcomes.append(GameOutcome(seed=seed, a_seat=a_seat, a_money=a_money, b_money=b_money, regime=regime))
 
     wins = sum(1 for o in outcomes if _outcome_class(o) == "win")
     losses = sum(1 for o in outcomes if _outcome_class(o) == "loss")
@@ -149,12 +173,13 @@ def compare(
     sprt_budget_exhausted = sprt_result.decision == "continue" and max_n_for_sprt is not None and n_games >= max_n_for_sprt
 
     by_regime: dict[str, WilsonInterval] = {}
-    regimes = sorted({o.regime for o in outcomes})
-    for regime in regimes:
-        regime_outcomes = [o for o in outcomes if o.regime == regime]
-        regime_wins = sum(1 for o in regime_outcomes if _outcome_class(o) == "win")
-        regime_ties = sum(1 for o in regime_outcomes if _outcome_class(o) == "tie")
-        by_regime[regime] = wilson_interval(regime_wins + 0.5 * regime_ties, len(regime_outcomes))
+    if use_regimes:
+        regimes = sorted({o.regime for o in outcomes})
+        for regime in regimes:
+            regime_outcomes = [o for o in outcomes if o.regime == regime]
+            regime_wins = sum(1 for o in regime_outcomes if _outcome_class(o) == "win")
+            regime_ties = sum(1 for o in regime_outcomes if _outcome_class(o) == "tie")
+            by_regime[regime] = wilson_interval(regime_wins + 0.5 * regime_ties, len(regime_outcomes))
 
     return ArenaResult(
         policy_a=policy_a_spec,
@@ -211,6 +236,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--threads", type=int, default=1)
     parser.add_argument("--p1", type=float, default=0.55, help="SPRT alternative-hypothesis win rate")
     parser.add_argument("--population", default=None, help="comma-separated extra opponents to also test policy_a against")
+    parser.add_argument("--regimes", action="store_true", help="stratify by issue 012's demand-regime taxonomy (fits it on first use, a few seconds)")
     parser.add_argument("--out", type=Path, default=None, help="experiment dir (default: auto-numbered under experiments/)")
     args = parser.parse_args(argv)
 
@@ -221,7 +247,9 @@ def main(argv: list[str] | None = None) -> None:
         "episode_steps": args.episode_steps,
     }
 
-    result = compare(args.policy_a, args.policy_b, args.n, args.seed_start, args.episode_steps, args.threads, args.p1, max_n_for_sprt=args.n * 2)
+    result = compare(
+        args.policy_a, args.policy_b, args.n, args.seed_start, args.episode_steps, args.threads, args.p1, max_n_for_sprt=args.n * 2, use_regimes=args.regimes
+    )
     print(f"{args.policy_a} vs {args.policy_b}: {result.wins}W-{result.losses}L-{result.ties}T over {result.n_games} games")
     print(f"  Wilson 95% CI: [{result.interval.lo:.3f}, {result.interval.hi:.3f}]  verdict: {result.verdict}")
     print(f"  SPRT: {result.sprt.decision} (llr={result.sprt.llr:.2f}, bounds=[{result.sprt.lower:.2f}, {result.sprt.upper:.2f}])")
@@ -234,7 +262,14 @@ def main(argv: list[str] | None = None) -> None:
     if args.population:
         opponents = args.population.split(",")
         pop_results = evaluate_population(
-            args.policy_a, opponents, n_seeds=args.n, seed_start=args.seed_start, episode_steps=args.episode_steps, n_threads=args.threads, p1=args.p1
+            args.policy_a,
+            opponents,
+            n_seeds=args.n,
+            seed_start=args.seed_start,
+            episode_steps=args.episode_steps,
+            n_threads=args.threads,
+            p1=args.p1,
+            use_regimes=args.regimes,
         )
         report["population"] = {k: v.to_dict() for k, v in pop_results.items()}
         print(f"\nPopulation evaluation ({args.policy_a} vs {opponents}):")
