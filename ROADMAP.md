@@ -187,10 +187,18 @@ Nothing downstream is trustworthy without these.
             `random_agent` seeds itself from OS entropy, not the episode seed — a `random`-
             involving trace isn't reproducible across separate exports (harmless here; worth
             knowing before 011/012 assume otherwise).
-- [ ] 8. **R7 (part 1): evaluation harness.** Paired-seed, both-seat, common-random-numbers arena
+- [x] 8. **R7 (part 1): evaluation harness.** Paired-seed, both-seat, common-random-numbers arena
       with Wilson CIs and a sequential stopping rule. It must answer "is B better than A" with a
-      stated error rate, and must refuse to answer when n is too small. Also fixes the shop draw
-      and weed RNG as explicit scenario knobs.
+      stated error rate, and must refuse to answer when n is too small.
+      [011](issues/011-eval-arena.md): `src/kaggriculture/eval/{stats,arena,agents}.py`. CRN turns
+      out to mean "same episode seed for both arms," not independently-pinnable shop/weed streams
+      — they share one RNG stream and the weed draw count depends on the policies' own actions
+      (see 011's Revision note). Verified against real data: `baseline` vs `pass`/`starter`/
+      `random` through this harness lands at ~26,140 vs 3,000 over a season, matching issue 005's
+      real-engine submission numbers; SPRT decides `better` in 31 games (well under the ~380 a
+      fixed-n 55%-effect test would need); byte-identical policies (including non-trivial ones —
+      `baseline` vs `baseline`) correctly land at an undecided 50%-centered CI once ties score 0.5
+      rather than counting as non-wins.
 - [ ] 9. **Scenario taxonomy.** Enumerate the shop-draw distribution (8 instances, sampled with
       replacement from 8 shop types) and cluster it into a handful of demand regimes. This is the
       input to R6 and it did not exist before PR #1394.
