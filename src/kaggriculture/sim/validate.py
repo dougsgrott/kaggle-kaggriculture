@@ -19,73 +19,13 @@ from __future__ import annotations
 import argparse
 import itertools
 import sys
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
 
 from kaggriculture.sim import _sim_native as native
+from kaggriculture.sim.decode import build_player_turn, episode_config
 from kaggriculture.sim.export_trace import PRODUCT_ORDER, export_trace
 
 BUILTIN_AGENTS = ("starter", "random", "pass")
-
-
-def _decode_unit_action(a: Any) -> native.UnitAction:
-    if not isinstance(a, list) or not a:
-        return native.UnitAction(native.Op.PASS)
-    op = getattr(native.Op, a[0], native.Op.PASS) if isinstance(a[0], str) else native.Op.PASS
-    item = native.Item.WHEAT
-    if len(a) >= 2 and isinstance(a[1], str):
-        item = getattr(native.Item, a[1], native.Item(255))
-    n = 1
-    if len(a) >= 3:
-        try:
-            n = int(a[2])
-        except (TypeError, ValueError):
-            n = 1
-    return native.UnitAction(op, item, n)
-
-
-def _decode_market_order(o: Any) -> native.MarketOrder:
-    if not isinstance(o, list) or not o or not isinstance(o[0], str):
-        return native.MarketOrder(native.MarketOp.NONE)
-    op = getattr(native.MarketOp, o[0], native.MarketOp.NONE)
-    if op in (native.MarketOp.HIRE, native.MarketOp.BUY_LAND):
-        return native.MarketOrder(op, native.Item.WHEAT, 1)
-    if op == native.MarketOp.NONE or len(o) < 3:
-        return native.MarketOrder(native.MarketOp.NONE)
-    item = getattr(native.Item, o[1], native.Item(255)) if isinstance(o[1], str) else native.Item(255)
-    try:
-        n = int(o[2])
-    except (TypeError, ValueError):
-        return native.MarketOrder(native.MarketOp.NONE)
-    if n <= 0:
-        return native.MarketOrder(native.MarketOp.NONE)
-    return native.MarketOrder(op, item, n)
-
-
-def _build_player_turn(act: dict, max_orders: int) -> native.PlayerTurn:
-    turn = native.PlayerTurn()
-    units = [act["farmer"], *act["hands"]]
-    turn.unit_actions = [_decode_unit_action(u) for u in units]
-    # vendor truncates the raw order queue to maxMarketOrdersPerTurn *before* processing
-    # (`q[:max_orders]` in _process_market) -- match that at decode time.
-    turn.market_orders = [_decode_market_order(o) for o in act["market"][:max_orders]]
-    return turn
-
-
-def _episode_config(cfg: dict) -> native.EpisodeConfig:
-    episode_cfg = native.EpisodeConfig()
-    episode_cfg.episode_steps = cfg["episodeSteps"]
-    episode_cfg.board_size = cfg["boardSize"]
-    episode_cfg.turns_per_day = cfg["turnsPerDay"]
-    episode_cfg.shed_capacity = cfg["shedCapacity"]
-    episode_cfg.starting_money = float(cfg["startingMoney"])
-    episode_cfg.market.max_market_orders_per_turn = cfg["maxMarketOrdersPerTurn"]
-    episode_cfg.market.farm_hand_cost_mult = cfg["farmHandCostMult"]
-    episode_cfg.market.weed_spawn_chance = cfg["weedSpawnChance"]
-    episode_cfg.market.town_shop_unlock_interval = cfg["townShopUnlockInterval"]
-    episode_cfg.market.town_shop_sell_interval = cfg["townShopSellInterval"]
-    episode_cfg.market.town_center_sell_interval = cfg["townCenterSellInterval"]
-    return episode_cfg
 
 
 @dataclass
@@ -152,7 +92,7 @@ def _check(trace: dict, i: int, state, market, actions=None) -> Divergence | Non
 def replay_and_diff(trace: dict) -> ValidationResult:
     """Feeds a trace's recorded actions to the C++ sim and diffs per-step money (both seats) and
     per-step market inventory (all nine resources) exactly against the recording."""
-    episode_cfg = _episode_config(trace["config"])
+    episode_cfg = episode_config(trace["config"])
     state = native.GameState(
         episode_cfg.board_size, episode_cfg.turns_per_day, episode_cfg.shed_capacity, episode_cfg.starting_money, trace["seed"]
     )
@@ -163,8 +103,8 @@ def replay_and_diff(trace: dict) -> ValidationResult:
         return ValidationResult(trace["seed"], tuple(trace["agents"]), False, 0, divergence)
 
     max_orders = episode_cfg.market.max_market_orders_per_turn
-    tape_a = native.TapePolicy([_build_player_turn(turn[0], max_orders) for turn in trace["actions"]])
-    tape_b = native.TapePolicy([_build_player_turn(turn[1], max_orders) for turn in trace["actions"]])
+    tape_a = native.TapePolicy([build_player_turn(turn[0], max_orders) for turn in trace["actions"]])
+    tape_b = native.TapePolicy([build_player_turn(turn[1], max_orders) for turn in trace["actions"]])
 
     for i, turn_actions in enumerate(trace["actions"]):
         native.advance_turns(state, market, tape_a, tape_b, 1, episode_cfg.market)

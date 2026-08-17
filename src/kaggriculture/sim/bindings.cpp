@@ -50,6 +50,147 @@ private:
     py::function callback_;
 };
 
+// String names, in Item/ShopType enum order -- matching vendor's own naming exactly, since
+// build_observation() below produces a dict real-engine-style agents (issue 005's baseline.py,
+// vendor's starter_agent/random_agent) read directly, unmodified.
+constexpr const char* ITEM_NAMES[N_ITEMS] = {"WHEAT", "CARROT",     "TOMATO", "STRAWBERRY", "MELON", "EGG",
+                                              "MILK",  "WOOL",       "FERTILIZER", "GOOSE",  "COW",   "SHEEP"};
+constexpr const char* SHOP_NAMES[] = {"BAKERY",         "BRUNCH_SPOT",    "FARMERS_MARKET", "ICE_CREAM_SHOP",
+                                       "PET_CAFE",       "PIZZA_SHOP",     "SMOOTHIE_SHOP",  "YARN_STORE"};
+
+py::object encode_tile(const Tile& t) {
+    py::dict d;
+    switch (t.kind) {
+        case TileKind::EMPTY: return py::none();
+        case TileKind::LOCKED: return py::str("LOCKED");
+        case TileKind::WEED:
+            d["kind"] = "WEED";
+            return d;
+        case TileKind::PLANT:
+            d["kind"] = "PLANT";
+            d["crop"] = ITEM_NAMES[static_cast<int>(t.plant.crop)];
+            d["planted_day"] = t.plant.planted_day;
+            d["watered_today"] = t.plant.watered_today;
+            d["consecutive_unwatered"] = t.plant.consecutive_unwatered;
+            d["yield_units"] = t.plant.yield_units;
+            d["max_lifespan_step"] = t.plant.max_lifespan_step;
+            d["fertilized_until_day"] = t.plant.fertilized_until_day;
+            return d;
+        case TileKind::COOP:
+        case TileKind::PASTURE:
+            d["kind"] = (t.kind == TileKind::COOP) ? "COOP" : "PASTURE";
+            if (t.animal.occupied) {
+                d["animal"] = ITEM_NAMES[N_PRODUCTS + static_cast<int>(t.animal.animal)];
+                d["placed_day"] = t.animal.placed_day;
+                d["yield_units"] = t.animal.yield_units;
+                d["consecutive_unfed"] = t.animal.consecutive_unfed;
+                d["fed_today"] = t.animal.fed_today;
+                d["cared_today"] = t.animal.cared_today;
+                d["fertilizer_available"] = t.animal.fertilizer_available;
+                d["pending_care_bonus"] = t.animal.pending_care_bonus;
+            }
+            return d;
+    }
+    return py::none();
+}
+
+py::dict encode_farm(const GameState& state, int player) {
+    const Farm& farm = state.farms[player];
+    py::dict d;
+    d["money"] = farm.money;
+    py::list tiles;
+    for (int y = 0; y < state.board_size; y++) {
+        py::list row;
+        for (int x = 0; x < state.board_size; x++) row.append(encode_tile(farm.tiles[y][x]));
+        tiles.append(std::move(row));
+    }
+    d["tiles"] = std::move(tiles);
+    d["farmer"] = py::make_tuple(farm.unit_pos[0].x, farm.unit_pos[0].y);
+    py::list hands;
+    for (int u = 1; u < farm.n_units; u++) hands.append(py::make_tuple(farm.unit_pos[u].x, farm.unit_pos[u].y));
+    d["hands"] = std::move(hands);
+    py::list quadrants;
+    static constexpr const char* QUADRANT_NAMES[4] = {"NW", "NE", "SW", "SE"};
+    for (int q = 0; q < 4; q++) {
+        if (farm.unlocked_quadrant[q]) quadrants.append(QUADRANT_NAMES[q]);
+    }
+    d["unlocked_quadrants"] = std::move(quadrants);
+    d["hires_today"] = farm.hires_today;
+    return d;
+}
+
+py::dict encode_private(const GameState& state, int player) {
+    const Private& priv = state.privates[player];
+    py::dict d;
+    py::dict shed;
+    for (int i = 0; i < N_ITEMS; i++) shed[ITEM_NAMES[i]] = priv.shed[i];
+    d["shed"] = std::move(shed);
+    py::dict seeds;
+    for (int c = 0; c < N_CROPS; c++) seeds[ITEM_NAMES[c]] = priv.seeds[c];
+    d["seeds"] = std::move(seeds);
+    py::list inventories;
+    for (int u = 0; u < state.farms[player].n_units; u++) {
+        py::dict inv;
+        for (int i = 0; i < N_ITEMS; i++) {
+            int n = priv.inventory[u][i];
+            if (n > 0) inv[ITEM_NAMES[i]] = n;  // vendor's inventory dicts omit zero entries
+        }
+        inventories.append(std::move(inv));
+    }
+    d["inventories"] = std::move(inventories);
+    return d;
+}
+
+py::dict encode_market(const MarketTownState& market) {
+    py::dict d;
+    py::dict inventory, prices;
+    for (int i = 0; i < N_PRODUCTS; i++) {
+        Item item = static_cast<Item>(i);
+        inventory[ITEM_NAMES[i]] = market.inventory[i];
+        prices[ITEM_NAMES[i]] = market_price(item, market.inventory[i]);
+    }
+    d["inventory"] = std::move(inventory);
+    d["prices"] = std::move(prices);
+    return d;
+}
+
+py::dict encode_town(const MarketTownState& market) {
+    py::dict d;
+    py::list shops;
+    // Reconstructs the multiset vendor's `unlocked_shops` list represents (each instance
+    // consumes independently -- see market.cpp's town_consume) from the per-type counts
+    // MarketTownState actually stores. Draw ORDER is lost (not tracked -- consumption never
+    // depends on it, see market.hpp), so this differs from vendor's own list only in ordering,
+    // never in multiset content or count.
+    for (int s = 0; s < static_cast<int>(ShopType::COUNT); s++) {
+        for (int k = 0; k < market.shop_count[s]; k++) shops.append(SHOP_NAMES[s]);
+    }
+    d["unlocked_shops"] = std::move(shops);
+    return d;
+}
+
+// Builds the exact observation dict shape vendor's interpreter() hands to a Python agent (see
+// how-to-play.md's "Observation Format") from native state, so an unmodified real-engine-style
+// agent function -- kaggriculture.agents.baseline, or vendor's own starter_agent/random_agent --
+// can run against this sim's speed via a CallbackPolicy without being rewritten. Built in C++
+// (not by calling tile_info() 100+ times per farm from Python) because this runs every turn of
+// every evaluated episode -- issue 011's eval arena is the reason this exists.
+py::dict build_observation(const GameState& state, const MarketTownState& market, int player) {
+    py::dict obs;
+    obs["player"] = player;
+    obs["day"] = state.step / state.turns_per_day;
+    obs["hour"] = state.step % state.turns_per_day;
+    obs["step"] = state.step;
+    py::list farms;
+    farms.append(encode_farm(state, 0));
+    farms.append(encode_farm(state, 1));
+    obs["farms"] = std::move(farms);
+    obs["market"] = encode_market(market);
+    obs["town"] = encode_town(market);
+    obs["private"] = encode_private(state, player);
+    return obs;
+}
+
 py::dict tile_info(const GameState& state, int player, int x, int y) {
     if (player < 0 || player >= N_PLAYERS) throw std::out_of_range("player must be 0 or 1");
     if (x < 0 || x >= state.board_size || y < 0 || y >= state.board_size) throw std::out_of_range("tile out of bounds");
@@ -173,6 +314,16 @@ PYBIND11_MODULE(_sim_native, m) {
         .value("BUY_ANIMAL", MarketOp::BUY_ANIMAL)
         .value("SELL", MarketOp::SELL);
 
+    py::enum_<ShopType>(m, "ShopType")
+        .value("BAKERY", ShopType::BAKERY)
+        .value("BRUNCH_SPOT", ShopType::BRUNCH_SPOT)
+        .value("FARMERS_MARKET", ShopType::FARMERS_MARKET)
+        .value("ICE_CREAM_SHOP", ShopType::ICE_CREAM_SHOP)
+        .value("PET_CAFE", ShopType::PET_CAFE)
+        .value("PIZZA_SHOP", ShopType::PIZZA_SHOP)
+        .value("SMOOTHIE_SHOP", ShopType::SMOOTHIE_SHOP)
+        .value("YARN_STORE", ShopType::YARN_STORE);
+
     py::class_<UnitAction>(m, "UnitAction")
         .def(py::init([](Op op, Item item, int n) { return UnitAction{op, item, n}; }), py::arg("op") = Op::PASS,
              py::arg("item") = Item::WHEAT, py::arg("n") = 1)
@@ -268,6 +419,10 @@ PYBIND11_MODULE(_sim_native, m) {
         .def_readonly("n_shops_unlocked", &MarketTownState::n_shops_unlocked);
 
     m.def("market_price", &market_price, py::arg("item"), py::arg("inventory"));
+    m.def("build_observation", &build_observation, py::arg("state"), py::arg("market"), py::arg("player"),
+          "Builds the real-engine-shaped observation dict (see how-to-play.md's Observation "
+          "Format) from native state, for driving an unmodified real-engine-style agent function "
+          "through this sim (issue 011's eval arena).");
 
     py::class_<Policy, PyPolicy, std::shared_ptr<Policy>>(m, "Policy").def(py::init<>());
 
