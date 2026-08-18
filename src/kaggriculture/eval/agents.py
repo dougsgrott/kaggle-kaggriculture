@@ -74,6 +74,34 @@ def wrap_agent(agent_fn: Callable, config: dict) -> native.Policy:
     return native.CallbackPolicy(callback)
 
 
+def record_tape(agent_fn: Callable, config: dict, opponent: native.Policy | None = None, seed: int = 0) -> native.TapePolicy:
+    """Runs `agent_fn` through the native sim once (against `opponent`, default a bare
+    TapePolicy([]) i.e. "pass") and freezes every PlayerTurn it returns into a TapePolicy, indexed
+    by absolute step -- the open-loop-plan path issues 013+ actually want at evaluation time:
+    build once (a Python callback, ~1 call/turn, "slow" but a single 720-turn episode is still a
+    matter of seconds), replay for free afterwards. See sim/policy.hpp's TapePolicy docstring."""
+    max_orders = config.get("maxMarketOrdersPerTurn", 10)
+    episode_steps = config["episodeSteps"]
+    tape: list[native.PlayerTurn | None] = [None] * episode_steps
+
+    def callback(state: native.GameState, market: native.MarketTownState, player: int) -> native.PlayerTurn:
+        obs = native.build_observation(state, market, player)
+        action = _call_agent(agent_fn, obs, config)
+        turn = build_player_turn(action or {}, max_orders)
+        if state.step < episode_steps:
+            tape[state.step] = turn
+        return turn
+
+    from kaggriculture.sim.decode import episode_config
+
+    episode_cfg = episode_config(config)
+    native.run_episode(native.CallbackPolicy(callback), opponent or native.TapePolicy([]), episode_cfg, seed)
+    return native.TapePolicy([t if t is not None else native.PlayerTurn() for t in tape])
+
+
+_GREEDY_TAPE_CACHE: dict[tuple, native.TapePolicy] = {}
+
+
 def resolve_policy(spec: str, config: dict) -> native.Policy:
     """Resolves a CLI agent spec into a native.Policy:
       - "pass"            -> a bare TapePolicy([]) (every turn PASS/no orders) -- exactly
@@ -81,6 +109,8 @@ def resolve_policy(spec: str, config: dict) -> native.Policy:
       - "starter"/"random" -> vendor's own agent function, wrapped (see wrap_agent).
       - "baseline"         -> a freshly built submission bundle (kaggriculture.submit.build),
                               loaded from its main.py and wrapped.
+      - "greedy"           -> issue 013's greedy scheduler, built once and recorded into a
+                              TapePolicy (native.TapePolicy, the fast path -- see record_tape).
       - anything else      -> treated as a path to a main.py-style agent file.
     """
     if spec == "pass":
@@ -95,8 +125,20 @@ def resolve_policy(spec: str, config: dict) -> native.Policy:
         tag = "eval-baseline"
         build_bundle(tag=tag)  # bundles baseline.py with flattened constants/price/yields/economics.py
         return wrap_agent(load_agent_from_file(SUBMISSIONS_DIR / tag / "main.py"), config)
+    if spec == "greedy":
+        cache_key = (config["episodeSteps"], config["turnsPerDay"], config["startingMoney"], config["farmHandCostMult"])
+        cached = _GREEDY_TAPE_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+        from kaggriculture.search.agent import schedule_agent
+        from kaggriculture.search.schedule import build_schedule
+
+        schedule = build_schedule(config)
+        tape_policy = record_tape(schedule_agent(schedule, config), config)
+        _GREEDY_TAPE_CACHE[cache_key] = tape_policy
+        return tape_policy
 
     path = Path(spec)
     if not path.exists():
-        raise ValueError(f"unknown agent {spec!r}: not a built-in name (pass/starter/random/baseline) or an existing file path")
+        raise ValueError(f"unknown agent {spec!r}: not a built-in name (pass/starter/random/baseline/greedy) or an existing file path")
     return wrap_agent(load_agent_from_file(path), config)

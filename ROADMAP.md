@@ -227,6 +227,17 @@ Run R2–R4 in parallel; they decompose cleanly.
       variable. Greedy constructive schedule → Large Neighbourhood Search (destroy/repair on
       day-blocks) → CMA-ES over a compact parametric policy (crew size per phase, crop mix, herd
       targets, quadrant purchase timing). 20 cores × a fast sim makes this the highest-EV line.
+      [013](issues/013-greedy-scheduler.md): `search/{schedule,agent}.py` built and beats
+      `pass`/`starter`/`random` decisively, but does **not** beat issue 005's baseline (0W-40L) —
+      a real finding, not a bug: baseline's melon monoculture is a strong sole-seller into
+      MELON's ~30-unit season-absorption capacity once a rational planner declines to fight over
+      it (see 012/013's own absorption numbers), and closing that gap needs search or opponent
+      modeling, not more greedy heuristics. Along the way, found that hired hands are wiped every
+      day (`_end_of_day`) — a crew is day labour, re-hired from scratch each morning, not a
+      persistent headcount — and confirmed the ladder's 4th-quadrant instinct: even with crew
+      sizing solved, SE's tiles go completely unused under this scheduler's own crew-relative tile
+      cap, so buying it (\$4,000) is pure waste (8-seed avg \$16.8k without vs \$15.2k with).
+      Blocked on 014 to actually close the baseline gap; 014 can start from 013's output regardless.
 - [ ] 11. **R3: sell-schedule optimization as a separate problem.** Given a production plan and a
       model of town drain, choosing sell times/quantities is a near-separable DP over the price
       curve (`price(inv) = base ± amp·f(|inv − I0|)`, floored at $1). Solve it exactly rather than

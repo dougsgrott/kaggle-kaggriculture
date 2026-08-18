@@ -74,6 +74,27 @@ def ongoing_crop_profit_per_action(
     return (revenue - cost) / actions
 
 
+def _simulate_animal_steady_state(animal: str, total_days: int, care: bool) -> tuple[int, int]:
+    """Shared day-loop for animal_profit_per_action/animal_yield_and_actions_over_days: FEED every
+    day (+ CARE every day if `care`), harvesting immediately after every scheduled production so
+    the tile never idles at `max_held` mid-run. Returns (total_harvested, n_productions)."""
+    a = ANIMALS[animal]
+    total_harvested = 0
+    pending_care_bonus = 0
+    n_productions = 0
+    for day in range(total_days):
+        next_day = day + 1
+        days_since_first = next_day - a["first_yield_day"]
+        if days_since_first >= 0 and days_since_first % a["interval"] == 0:
+            bonus = pending_care_bonus  # animal is always fed in this steady-state schedule
+            total_harvested += min(a["max_held"], 1 + bonus)
+            pending_care_bonus = 0
+            n_productions += 1
+        if care:
+            pending_care_bonus += 1
+    return total_harvested, n_productions
+
+
 def animal_profit_per_action(animal: str, sale_price: float, care: bool, n_events: int = 12, feed_price: float = 0.0) -> float:
     """Steady-state $/action once production is underway: FEED every day (+ CARE every day if
     `care`), harvesting immediately after every scheduled production so the bank/tile never hit
@@ -82,27 +103,20 @@ def animal_profit_per_action(animal: str, sale_price: float, care: bool, n_event
     """
     a = ANIMALS[animal]
     total_days = a["first_yield_day"] + n_events * a["interval"]
-    total_harvested = 0
-    pending_care_bonus = 0
-    for day in range(total_days):
-        next_day = day + 1
-        days_since_first = next_day - a["first_yield_day"]
-        if days_since_first >= 0 and days_since_first % a["interval"] == 0:
-            bonus = pending_care_bonus  # animal is always fed in this steady-state schedule
-            total_harvested += min(a["max_held"], 1 + bonus)
-            pending_care_bonus = 0
-        if care:
-            pending_care_bonus += 1
-
-    n_productions = sum(
-        1
-        for day in range(total_days)
-        if (day + 1 - a["first_yield_day"]) >= 0 and (day + 1 - a["first_yield_day"]) % a["interval"] == 0
-    )
+    total_harvested, n_productions = _simulate_animal_steady_state(animal, total_days, care)
     revenue = total_harvested * sale_price
     cost = total_days * feed_price
     actions = total_days * (2 if care else 1) + n_productions  # FEED (+CARE) daily, HARVEST per event
     return (revenue - cost) / actions
+
+
+def animal_yield_and_actions_over_days(animal: str, total_days: int, care: bool = True) -> tuple[int, int]:
+    """Total yield_units harvested and actions spent (FEED/+CARE daily, HARVEST per event) over a
+    fixed calendar window — the greedy scheduler's (issue 013) unit of allocation for an animal
+    structure, as opposed to animal_profit_per_action's n_events-based (open-ended) window."""
+    total_harvested, n_productions = _simulate_animal_steady_state(animal, total_days, care)
+    actions = total_days * (2 if care else 1) + n_productions
+    return total_harvested, actions
 
 
 def hand_cost(n_already_hired_today: int, mult: int = FARM_HAND_COST_MULT) -> int:
