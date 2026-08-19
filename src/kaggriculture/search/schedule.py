@@ -56,7 +56,9 @@ gap is exactly the kind of work issue 014's search is for.
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass, field
+from typing import Callable
 
 from kaggriculture.model.constants import ANIMALS, CROPS, MARKET_I0
 from kaggriculture.model.economics import (
@@ -124,6 +126,13 @@ CASH_RESERVE = 500.0
 # starting money) with nobody actually able to plant, water, or harvest most of them -- exactly
 # the failure this heuristic exists to prevent (see the issue's Revision section).
 NEW_PLANTS_PER_HAND_PER_DAY = 3
+
+# Epsilon-greedy exploration rate for the tile-assignment step when a day is given an `rng`
+# (issue 014's destroy/repair operator, see search.lns) -- with this probability, sample uniformly
+# among all *still-profitable* (ppa > 0) crop candidates for a tile instead of always taking the
+# argmax. Never picks a lossy crop -- exploration is over which good option, not whether to be
+# reckless -- so a "destroyed" window can't do worse than leaving the tile fallow.
+EXPLORATION_EPSILON = 0.3
 
 # Season-long town-absorption capacity per product, assuming issue 012's "expected" shop draw
 # (one of each of the 8 shop types, unlocked on schedule) and zero production -- the credit netted
@@ -225,12 +234,23 @@ class Schedule:
         return self.crew_size_by_day[max(applicable)] if applicable else 0
 
 
-def build_schedule(config: dict, allow_4th_quadrant: bool = True) -> Schedule:
+def build_schedule(
+    config: dict,
+    allow_4th_quadrant: bool = True,
+    rng_for_day: Callable[[int], random.Random | None] | None = None,
+) -> Schedule:
     """Greedy day-by-day construction. Every day: unlock land if affordable, build the
     best-ranked animal structure if a shed-adjacent tile and money allow, hire while the next
     hand's cost (cheap -- it resets daily, see model.economics.hand_cost) still clears the best
     available marginal $/action, then assign every free tile to whichever crop currently ranks
-    highest (marginal, price-aware) among the affordable, season-long-fitting options."""
+    highest (marginal, price-aware) among the affordable, season-long-fitting options.
+
+    `rng_for_day(day) -> Random | None` is issue 014's destroy/repair hook: for any day it returns
+    an `Random` for, that day's tile-assignment step explores (see EXPLORATION_EPSILON) instead of
+    always taking the argmax -- "destroying" days `[d, d+k)` and re-solving them is exactly calling
+    this with `rng_for_day` returning an RNG only inside that window (see search.lns). Defaults to
+    fully deterministic, reproducing this function's pre-014 behaviour exactly.
+    """
     n_days = config["episodeSteps"] // config["turnsPerDay"]
     hand_cost_mult = config.get("farmHandCostMult", 1)
     max_quadrants = 4 if allow_4th_quadrant else 3
@@ -257,6 +277,8 @@ def build_schedule(config: dict, allow_4th_quadrant: bool = True) -> Schedule:
         free_tiles.remove(pos)  # NW's shed-adjacent tile is reserved for the first animal site
 
     for day in range(n_days):
+        rng = rng_for_day(day) if rng_for_day is not None else None
+
         # 0. Realized income: already-built animals pay a flat daily installment; crop tiles pay
         # out in full the day their current cycle matures, then free up for reassignment.
         money += daily_animal_income
@@ -348,15 +370,19 @@ def build_schedule(config: dict, allow_4th_quadrant: bool = True) -> Schedule:
                 if new_plant_budget <= 0:
                     continue
                 new_plant_budget -= 1
-            best_crop, best_ppa, best_yield, best_cycle_days, best_revenue = None, 0.0, 0, 0, 0.0
+            viable = []  # (ppa, crop, yield_units, cycle_days, revenue) for every affordable, profitable candidate
             for crop in CROP_NAMES:
                 if money < CROPS[crop]["seed"]:
                     continue
                 ppa, yield_units, _actions, cycle_days, revenue = _crop_cycle_value(crop, day, n_days, committed)
-                if ppa > best_ppa:
-                    best_crop, best_ppa, best_yield, best_cycle_days, best_revenue = crop, ppa, yield_units, cycle_days, revenue
-            if best_crop is None:
+                if ppa > 0:
+                    viable.append((ppa, crop, yield_units, cycle_days, revenue))
+            if not viable:
                 continue
+            if rng is not None and rng.random() < EXPLORATION_EPSILON:
+                _ppa, best_crop, best_yield, best_cycle_days, best_revenue = rng.choice(viable)
+            else:
+                _ppa, best_crop, best_yield, best_cycle_days, best_revenue = max(viable)
             money -= CROPS[best_crop]["seed"]
             tile_role[pos] = best_crop
             tile_kind[pos] = "crop"
