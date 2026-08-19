@@ -257,13 +257,40 @@ Run R2–R4 in parallel; they decompose cleanly.
       the current time" (not 0) — the latter made every CMA-ES run non-reproducible until caught
       by a reproducibility test, and invalidated (but did not falsify) an earlier, even more
       lopsided baseline result (56W-4L-0T) produced before the fix.
-- [ ] 11. **R3: sell-schedule optimization as a separate problem.** Given a production plan and a
+- [x] 11. **R3: sell-schedule optimization as a separate problem.** Given a production plan and a
       model of town drain, choosing sell times/quantities is a near-separable DP over the price
       curve (`price(inv) = base ± amp·f(|inv − I0|)`, floored at $1). Solve it exactly rather than
       with the heuristics the public lineage uses. This is where the measured 24x lives (thread
       734412). Include **terminal liquidation**: unsold shed inventory scores zero, and at the $1
       floor units are not added to market inventory, so the floor stays responsive — endgame
       dumping has structure worth exploiting.
+      [016](issues/016-sell-schedule-dp.md) (done): `search/sell_dp.py` — an exact DP over
+      `(day, cumulative units sold)` confirms the timing effect is real (+8-18% revenue over
+      "dump at harvest" in isolation, up to 7.5x replicating the forum's own big-lump stress test),
+      but the naive (undiscounted) version *loses* head-to-head (4W-56L) once cash-flow
+      reinvestment and a real competing seller are in the loop — holding revenue for a better price
+      also starves the crew/land/seed purchases the production plan assumed would be funded
+      immediately. A per-day time-value-of-money discount (`discount=0.93`, empirically tuned)
+      recovers a real, statistically clean win (124W-76L over 200 games, CI `[0.551, 0.684]`,
+      `better`) — though a secondary finding is that most of THAT win comes from removing the
+      existing sell logic's rigid 50%-of-base floor rule, not from the "wait for the demand hole"
+      effect this line's own motivation is about. Terminal liquidation itself (the DP's own
+      terminal-value-zero property forces full liquidation by the last day, but naively — "sell
+      everything on the final day" is exactly the baseline issue 017 wants to beat, not a solution
+      to the joint multi-product, opponent-concurrent endgame issue 017 actually scopes) is closed
+      separately by 017 below — the cleanest result of any issue in this repo so far.
+      [017](issues/017-terminal-liquidation.md) (done): `search/liquidation.py` — a turn-granularity
+      endgame DP for the final day, built on a concurrent-selling mechanic verified directly
+      against the vendor engine (equal-size simultaneous SELL orders get identical prices; a
+      smaller order finishes first and keeps the better price, cutting a 50-unit solo seller's
+      revenue by 40% once a 20-unit competing order joins in) rather than assumed from the issue's
+      own original framing, which turned out to be wrong about *why* concurrent selling hurts.
+      Beats "dump everything the moment the window opens" **192W-8L-0T over 200 games, Wilson CI
+      `[0.923, 0.980]`, `better`** — no cash-flow discount correction needed this time (unlike 016,
+      there's no more season left to reinvest into by day 29). Also produced a wind-down-day table
+      per product, a denial-selling worked example (handed to issue 025), and confirmed fertilizer
+      has zero exogenous drain (sell it whenever convenient, no scarcity dynamic to time against) —
+      see [`notes/terminal-liquidation.md`](notes/terminal-liquidation.md).
 - [ ] 12. **R4: opponent coupling / EGTA.** Build a population of policies (ours across
       generations, plus reconstructions of the public lineage and the top-5 opening clusters from
       thread 733924), compute the empirical payoff matrix, and iterate best responses. Directly

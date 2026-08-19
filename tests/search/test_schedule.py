@@ -111,6 +111,20 @@ def test_disallowing_the_4th_quadrant_never_unlocks_se():
     assert 2 not in schedule.land_days  # extra-quadrant index 2 == SE
 
 
+def test_build_schedule_populates_arrivals_for_committed_products():
+    """Issue 016's own production-schedule input -- see tests/search/test_sell_dp.py for the
+    consumer side. A minimal structural check here; the tighter per-day bound against
+    `committed_units` lives in test_sell_dp.py alongside the module that actually uses this
+    field. `tile_role`'s final snapshot is NOT the right thing to compare against: a tile can be
+    replanted to a different crop across cycles as prices shift, so a product harvested early in
+    the season (and credited to `arrivals`/`committed_units`) may no longer own any tile by the
+    season's final snapshot."""
+    cfg = default_config_dict()
+    schedule = build_schedule(cfg)
+    assert set(schedule.arrivals) <= set(schedule.diagnostics["committed_units"])
+    assert schedule.arrivals  # at least one product actually landed something in the shed
+
+
 @pytest.mark.slow
 def test_build_schedule_is_deterministic():
     cfg = default_config_dict()
@@ -118,3 +132,4 @@ def test_build_schedule_is_deterministic():
     b = build_schedule(cfg)
     assert a.tile_role == b.tile_role
     assert a.crew_size_by_day == b.crew_size_by_day
+    assert a.arrivals == b.arrivals
