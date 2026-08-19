@@ -264,6 +264,21 @@ Run R2–R4 in parallel; they decompose cleanly.
       734412). Include **terminal liquidation**: unsold shed inventory scores zero, and at the $1
       floor units are not added to market inventory, so the floor stays responsive — endgame
       dumping has structure worth exploiting.
+      [016](issues/016-sell-schedule-dp.md) (done): `search/sell_dp.py` — an exact DP over
+      `(day, cumulative units sold)` confirms the timing effect is real (+8-18% revenue over
+      "dump at harvest" in isolation, up to 7.5x replicating the forum's own big-lump stress test),
+      but the naive (undiscounted) version *loses* head-to-head (4W-56L) once cash-flow
+      reinvestment and a real competing seller are in the loop — holding revenue for a better price
+      also starves the crew/land/seed purchases the production plan assumed would be funded
+      immediately. A per-day time-value-of-money discount (`discount=0.93`, empirically tuned)
+      recovers a real, statistically clean win (124W-76L over 200 games, CI `[0.551, 0.684]`,
+      `better`) — though a secondary finding is that most of THAT win comes from removing the
+      existing sell logic's rigid 50%-of-base floor rule, not from the "wait for the demand hole"
+      effect this line's own motivation is about. Terminal liquidation itself (the DP's own
+      terminal-value-zero property forces full liquidation by the last day, but naively — "sell
+      everything on the final day" is exactly the baseline issue 017 wants to beat, not a solution
+      to the joint multi-product, opponent-concurrent endgame issue 017 actually scopes) remains
+      open, tracked separately.
 - [ ] 12. **R4: opponent coupling / EGTA.** Build a population of policies (ours across
       generations, plus reconstructions of the public lineage and the top-5 opening clusters from
       thread 733924), compute the empirical payoff matrix, and iterate best responses. Directly

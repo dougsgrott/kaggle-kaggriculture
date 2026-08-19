@@ -26,6 +26,20 @@ SELL_FLOOR_FRACTION = 0.5  # never sell a unit for less than half its base price
 WHEAT_BUFFER_PER_ANIMAL = 3
 MAX_SEED_QTY_PER_ORDER = 3  # throttles cash burn (see _market_orders' seed-buying step)
 QUADRANT_NAMES = ("NW", "NE", "SW", "SE")
+SHED_SAFETY_MARGIN = 80  # see _market_orders' sell_plan branch: fall back to opportunistic
+# floor-threshold selling once shed holdings run this high, regardless of what the day's plan
+# says -- issue 016's analytical arrivals forecast is not a turn-exact replay of what
+# schedule_agent actually produces (weeds, watering execution, etc. all shift real timing), so
+# without this a bad-enough drift could let real production pile up past shedCapacity=100 and get
+# silently destroyed.
+MIN_LIQUIDITY_RESERVE = 300  # see _market_orders' sell_plan branch: the DP (search.sell_dp)
+# optimizes total-season revenue, which happily holds high-value inventory for weeks -- but
+# `build_schedule`'s own crew/land/seed decisions assume revenue lands the day it's harvested (its
+# `pending_revenue` ledger), so honoring the plan literally starves cash to $0 within days, crew
+# stops getting hired, and the season collapses (see the issue's Revision section for the observed
+# trace: hands -> 0 by day ~4, shed inventory flatlines for 20+ days). Selling opportunistically
+# whenever money drops below this floor -- regardless of what the plan says -- keeps the season's
+# other machinery funded without discarding the plan's patience once cash is comfortable again.
 
 
 def _sell_floor(item: str) -> int:
@@ -116,11 +130,16 @@ def _chunks(items: list, n_workers: int) -> list[list]:
     return [items[i * size : (i + 1) * size] for i in range(n_workers)]
 
 
-def schedule_agent(schedule, config: dict) -> Callable[[dict, dict], dict]:
+def schedule_agent(schedule, config: dict, sell_plan: dict[str, dict[int, int]] | None = None) -> Callable[[dict, dict], dict]:
     """Builds the `agent(observation, configuration) -> action` callable that executes `schedule`.
     Tile roles are looked up from the schedule (static, decided once at plan time); crew/land
     timing come from its calendars; everything else (watering cadence, sell floor, wheat buffer)
-    is generic per-role logic, not schedule-specific state."""
+    is generic per-role logic, not schedule-specific state.
+
+    `sell_plan` (issue 016's `search.sell_dp.solve_all_products` output, `{item: {day: units}}`)
+    replaces the default floor-threshold sell logic with a precomputed day-by-day schedule when
+    given -- see `_market_orders`'s sell step for the fallback that keeps this robust to real
+    production drifting from the plan's own analytical forecast."""
     crop_tiles = [pos for q in range(4) for pos in quadrant_tiles(q) if schedule.tile_kind.get(pos) == "crop"]
     animal_tiles = [shed_adjacent_tile(q) for q in range(4) if schedule.tile_kind.get(shed_adjacent_tile(q)) == "animal"]
     farmer_does_herd = len(animal_tiles) > 0
@@ -247,14 +266,24 @@ def schedule_agent(schedule, config: dict) -> Callable[[dict, dict], dict]:
         if len(orders) < max_orders and animal_tiles and private["shed"].get("WHEAT", 0) < WHEAT_BUFFER_PER_ANIMAL * len(animal_tiles) and money > 0:
             orders.append(["BUY_PRODUCT", "WHEAT", 1])
 
+        total_shed = sum(private["shed"].values())
         for item, qty in private["shed"].items():
             if len(orders) >= max_orders:
                 break
             if qty <= 0 or item not in MARKET_PARAMS or (item == "WHEAT" and animal_tiles):
                 continue
             floor = _sell_floor(item)
-            sellable = units_sellable_before(item, market["inventory"][item], floor)
-            sell_qty = qty if sellable is None else min(qty, sellable)
+            use_fallback = (
+                sell_plan is None
+                or day >= schedule.n_days - 1
+                or total_shed > SHED_SAFETY_MARGIN
+                or money < MIN_LIQUIDITY_RESERVE
+            )
+            if use_fallback:
+                sellable = units_sellable_before(item, market["inventory"][item], floor)
+                sell_qty = qty if sellable is None else min(qty, sellable)
+            else:
+                sell_qty = min(qty, sell_plan.get(item, {}).get(day, 0))
             if sell_qty > 0:
                 orders.append(["SELL", item, sell_qty])
 

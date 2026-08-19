@@ -224,6 +224,11 @@ class Schedule:
     crew_size_by_day: dict[int, int] = field(default_factory=dict)  # day -> hands to hire THAT morning
     land_days: dict[int, int] = field(default_factory=dict)  # extra-quadrant index (0=NE,1=SW,2=SE) -> day
     n_days: int = 30
+    # product -> {day: units of that product landing in the shed that day}. Crops: exact (this
+    # plan's own harvest ledger). Animals: `daily_animal_income`'s own flat-installment model,
+    # rounded to whole units -- see build_schedule's step 0/2 for both. Issue 016's own production
+    # input (search.sell_dp), not consumed anywhere in this module itself.
+    arrivals: dict[str, dict[int, int]] = field(default_factory=dict)
     diagnostics: dict = field(default_factory=dict)
 
     def target_hands(self, day: int) -> int:
@@ -268,7 +273,10 @@ def build_schedule(
     land_days: dict[int, int] = {}
     next_harvest_day: dict[tuple[int, int], int] = {}  # crop tiles only
     pending_revenue: dict[tuple[int, int], float] = {}  # crop tiles only, credited at harvest
+    pending_yield: dict[tuple[int, int], tuple[str, int]] = {}  # crop tiles only: (crop, yield_units) at harvest
     daily_animal_income = 0.0  # sum over all built animal structures, credited every day
+    daily_animal_yield: dict[str, float] = {}  # product -> flat units/day installment, sum over structures
+    arrivals: dict[str, dict[int, int]] = {}
 
     unlocked_quadrants = [0]
     free_tiles: list[tuple[int, int]] = list(quadrant_tiles(0))
@@ -280,12 +288,18 @@ def build_schedule(
         rng = rng_for_day(day) if rng_for_day is not None else None
 
         # 0. Realized income: already-built animals pay a flat daily installment; crop tiles pay
-        # out in full the day their current cycle matures, then free up for reassignment.
+        # out in full the day their current cycle matures, then free up for reassignment. Mirrored
+        # into `arrivals` (issue 016's production-schedule input) in physical units, not dollars.
         money += daily_animal_income
+        for product, per_day_units in daily_animal_yield.items():
+            if per_day_units > 0:
+                arrivals.setdefault(product, {})[day] = arrivals.get(product, {}).get(day, 0) + round(per_day_units)
         for pos in [p for p, hd in next_harvest_day.items() if hd <= day]:
             money += pending_revenue.pop(pos)
             del next_harvest_day[pos]
             free_tiles.append(pos)
+            crop, yield_units = pending_yield.pop(pos)
+            arrivals.setdefault(crop, {})[day] = arrivals.get(crop, {}).get(day, 0) + yield_units
 
         # 1. Land: unlock the next quadrant once affordable WITH a cash reserve left over -- land,
         # an animal structure and a full crew are each individually affordable out of the $3000
@@ -317,6 +331,9 @@ def build_schedule(
                 pos = open_sites[0]
                 money -= ANIMALS[best_animal]["cost"]
                 daily_animal_income += best_daily_income
+                remaining_days = n_days - day
+                product = ANIMALS[best_animal]["product"]
+                daily_animal_yield[product] = daily_animal_yield.get(product, 0.0) + best_yield / remaining_days
                 tile_role[pos] = best_animal
                 tile_kind[pos] = "animal"
                 tile_first_assigned_day.setdefault(pos, day)
@@ -390,6 +407,7 @@ def build_schedule(
             committed[best_crop] += best_yield
             next_harvest_day[pos] = day + best_cycle_days
             pending_revenue[pos] = best_revenue
+            pending_yield[pos] = (best_crop, best_yield)
             free_tiles.remove(pos)
 
     return Schedule(
@@ -399,6 +417,7 @@ def build_schedule(
         crew_size_by_day=crew_size_by_day,
         land_days=land_days,
         n_days=n_days,
+        arrivals=arrivals,
         diagnostics={
             "final_money_estimate": money,
             "committed_units": dict(committed),
