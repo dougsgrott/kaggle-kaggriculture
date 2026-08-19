@@ -123,8 +123,16 @@ def resolve_policy(spec: str, config: dict) -> native.Policy:
         from kaggriculture.submit.build import SUBMISSIONS_DIR, build_bundle
 
         tag = "eval-baseline"
-        build_bundle(tag=tag)  # bundles baseline.py with flattened constants/price/yields/economics.py
-        return wrap_agent(load_agent_from_file(SUBMISSIONS_DIR / tag / "main.py"), config)
+        main_path = SUBMISSIONS_DIR / tag / "main.py"
+        if not main_path.exists():
+            # Guards against a real race: issue 015's CMA-ES resolves "baseline" from several
+            # worker PROCESSES at once (see search.cmaes's module docstring on why processes, not
+            # threads), and build_bundle() always overwrites unconditionally -- concurrent writers
+            # to the same tag corrupt each other's output (observed as a truncated main.py).
+            # Skipping the rebuild once the bundle already exists on disk makes resolve_policy
+            # safe to call from multiple processes for the same tag.
+            build_bundle(tag=tag)  # bundles baseline.py with flattened constants/price/yields/economics.py
+        return wrap_agent(load_agent_from_file(main_path), config)
     if spec == "greedy":
         cache_key = (config["episodeSteps"], config["turnsPerDay"], config["startingMoney"], config["farmHandCostMult"])
         cached = _GREEDY_TAPE_CACHE.get(cache_key)

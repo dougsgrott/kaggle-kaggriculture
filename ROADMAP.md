@@ -223,7 +223,7 @@ taxonomy R6/021 need exists. P2's search lines (below) can start.
 
 Run R2–R4 in parallel; they decompose cleanly.
 
-- [ ] 10. **R2: production plan search.** Treat the 720-turn action sequence as the decision
+- [x] 10. **R2: production plan search.** Treat the 720-turn action sequence as the decision
       variable. Greedy constructive schedule → Large Neighbourhood Search (destroy/repair on
       day-blocks) → CMA-ES over a compact parametric policy (crew size per phase, crop mix, herd
       targets, quadrant purchase timing). 20 cores × a fast sim makes this the highest-EV line.
@@ -237,7 +237,26 @@ Run R2–R4 in parallel; they decompose cleanly.
       persistent headcount — and confirmed the ladder's 4th-quadrant instinct: even with crew
       sizing solved, SE's tiles go completely unused under this scheduler's own crew-relative tile
       cap, so buying it (\$4,000) is pure waste (8-seed avg \$16.8k without vs \$15.2k with).
-      Blocked on 014 to actually close the baseline gap; 014 can start from 013's output regardless.
+      [014](issues/014-lns-plan-search.md): LNS (destroy/repair via a `rng_for_day` hook on 013's
+      own greedy loop + 4 direct neighbourhood moves + record-to-record acceptance) decisively
+      beats 013's seed plan — 30W-0L-0T on a disjoint holdout set, portfolio margin $1,953→$14,087
+      — but, checked directly, only narrows the baseline gap rather than closing it (013's 4W-56L
+      → 10W-50L, still `worse`). 66 candidate evaluations; a real budget increase (thousands of
+      iterations, true candidate-level parallelism) plus an opponent-aware "contest melon supply"
+      operator are the next lever, and squarely 018's territory once a population exists.
+      [015](issues/015-cmaes-policy-tuning.md): `search/{policy,cmaes}.py` — a REACTIVE parametric
+      policy (~20 weights, live market prices, no offline projection needed) tuned by CMA-ES
+      (added the `cma` dependency) is the line that actually closes the baseline gap: **32W-8L-0T**
+      on a fresh holdout set, Wilson CI `[0.652, 0.895]`, verdict `better` — the first agent in
+      this repo to beat issue 005's baseline. It does NOT beat 014's LNS plan at full sample size
+      (34W-66L-0T over 100 games, `worse` — see `notes/cmaes-vs-lns.md`), a real negative result,
+      not a bug: a 20-dimensional policy that has to generalize across all reachable game states
+      is a harder target than fitting one 720-turn tape with a much larger, more targeted search
+      budget. Two real bugs surfaced and fixed along the way: a multi-process race rebuilding the
+      shared `baseline` submission bundle, and `cma.fmin2`'s `seed=0` silently meaning "seed from
+      the current time" (not 0) — the latter made every CMA-ES run non-reproducible until caught
+      by a reproducibility test, and invalidated (but did not falsify) an earlier, even more
+      lopsided baseline result (56W-4L-0T) produced before the fix.
 - [ ] 11. **R3: sell-schedule optimization as a separate problem.** Given a production plan and a
       model of town drain, choosing sell times/quantities is a near-separable DP over the price
       curve (`price(inv) = base ± amp·f(|inv − I0|)`, floored at $1). Solve it exactly rather than
