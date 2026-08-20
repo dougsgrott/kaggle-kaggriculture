@@ -285,17 +285,73 @@ Run R2–R4 in parallel; they decompose cleanly.
       smaller order finishes first and keeps the better price, cutting a 50-unit solo seller's
       revenue by 40% once a 20-unit competing order joins in) rather than assumed from the issue's
       own original framing, which turned out to be wrong about *why* concurrent selling hurts.
-      Beats "dump everything the moment the window opens" **192W-8L-0T over 200 games, Wilson CI
-      `[0.923, 0.980]`, `better`** — no cash-flow discount correction needed this time (unlike 016,
+      Beats "dump everything the moment the window opens" **200W-0L-0T over 200 games, Wilson CI
+      `[0.981, 1.000]`, `better`** — no cash-flow discount correction needed this time (unlike 016,
       there's no more season left to reinvest into by day 29). Also produced a wind-down-day table
       per product, a denial-selling worked example (handed to issue 025), and confirmed fertilizer
       has zero exogenous drain (sell it whenever convenient, no scarcity dynamic to time against) —
-      see [`notes/terminal-liquidation.md`](notes/terminal-liquidation.md).
-- [ ] 12. **R4: opponent coupling / EGTA.** Build a population of policies (ours across
-      generations, plus reconstructions of the public lineage and the top-5 opening clusters from
-      thread 733924), compute the empirical payoff matrix, and iterate best responses. Directly
-      tests Kaito's "stable attractor" hypothesis and prevents overfitting to the current top-30 —
-      his stated failure mode is losing to *older* meta generations still on the ladder.
+      see [`notes/terminal-liquidation.md`](notes/terminal-liquidation.md). (Numbers corrected
+      2026-08-20: building issue 018's population surfaced a cross-episode stale-state bug in both
+      endgame wrapper agents — fixed; the corrected result is even cleaner than first reported. See
+      017's second Revision section.)
+- [x] 12. **R4: opponent coupling / EGTA.** [018](issues/018-egta-payoff-matrix.md) (done):
+      `eval/population.py` + `eval/egta.py` — an 18-member population (our 9 own generations,
+      pass through the full 016+017 composition, plus 9 public opening-cluster representatives
+      fingerprinted by running each candidate's own vendored source directly and reading
+      engine-exact state at turn 47, not by mining the Kaggle replay dataset the issue originally
+      scoped — no credentials on this machine, and a strictly better substitute was already in the
+      repo). 153-pair payoff matrix finds a **strict dominant strategy**
+      (`beicicc__kaggriculture-c26-kaito-v23-dual-regime`, undefeated, 100% against every one of
+      our own generations) coexisting with an **8-triple rock-paper-scissors cycle entirely inside
+      our own lineage plus two outside points** (`cmaes015` beats `baseline`, loses to
+      `current017`/`dp016`/`greedy013`/`lns014`, which all lose back to `baseline`). Fictitious
+      play converges to the dominant strategy — confirms Kaito's *weaker* claim (best-responding
+      against a fixed population converges, doesn't cycle forever) but not his stronger attractor
+      hypothesis (would need genuinely new strategies generated each round). **The most actionable
+      finding: 014's LNS-optimized production plan alone beats 016+017's sell-timing sophistication
+      on top of the *default* plan 87% of the time** — the two have never actually been combined,
+      and closing that gap is the highest-leverage next step queued, ahead of any new search line.
+      Also surfaced and fixed a real cross-episode state bug in 017's own endgame wrappers (see
+      017's second Revision) — invisible to 017's own single-episode testing, triggered immediately
+      by this issue's population-wide policy reuse. See
+      [`notes/egta-payoff-matrix.md`](notes/egta-payoff-matrix.md).
+- [x] 12b. **Act on 018's own finding.** [028](issues/028-lns-sell-dp-composition.md) (done):
+      `search/composition.py` composes 014's LNS-optimized plan with 016's sell-timing DP and
+      017's terminal liquidation — the exact gap 018 identified. Beats both parent pieces
+      decisively: **60W-0L-0T vs `current017`** and **60W-0L-0T vs `lns014`**, both CI
+      `[0.940, 1.000]`. Against `baseline`, closes most (not all) of `current017`'s huge gap:
+      `undecided` at 43.3% win rate (26W-34L), up from `current017`'s 6.7% (0W-30L per 018's
+      matrix). Along the way found that `Schedule.arrivals` (016's own sell-DP input) describes an
+      idealized multi-crop-rotation forecast `schedule_agent`'s live execution never actually
+      follows — true for *any* schedule, not just LNS-mutated ones — so this issue's own
+      `measure_arrivals` (ground truth from the engine, not the analytical field) is now the right
+      way to solve a sell plan against any schedule. **Submitted directly to the ladder 2026-08-20**
+      as `lns-sell-dp-composition-v1` (user call: get a real ladder read now rather than wait for
+      026) — `baseline-v1` remains separately submitted and scored, so this is a second real data
+      point, not a replacement gamble. Needed a new `submit.build.build_composed_bundle` (freezes
+      the LNS plan + sell plan as data, bundles the live per-turn code verbatim via the same
+      import-rewriting `build_bundle` already used, not hand-transcribed). **First submission
+      attempt errored on Kaggle's real grader despite every local check passing** — a
+      `Path(__file__).resolve().parents[3]` module-level statement, harmless from this repo's own
+      directory depth, `IndexError`s the instant it's imported from Kaggle's actual shallow
+      `/kaggle_simulations/agent/` path; no local check had ever run the bundle from anywhere but
+      this repo's own tree. Fixed, reproduced Kaggle's shallow path locally as a new standing
+      regression test, resubmitted same day: **`SubmissionStatus.COMPLETE`, public score 600.0,
+      above `baseline-v1`'s 484.5.** See
+      [`notes/lns-sell-dp-composition.md`](notes/lns-sell-dp-composition.md).
+- [x] 12c. **Close the remaining baseline gap.** [029](issues/029-close-baseline-gap.md) (done):
+      a 5x larger LNS search budget (`--n-iters 300 --n-restarts 15` vs. `60`/`6`) — issue 014's
+      own long-standing "what's next" note, finally tried — turned 028's `undecided` 43.3% win
+      rate against `baseline` into a clean **60W-0L-0T sweep, CI `[0.940, 1.000]`, verdict
+      `better`**: the first search-derived agent this repo has built to decisively beat
+      `baseline`. Also decisive against `current017` and against the same larger-budget plan with
+      naive selling (both 60W-0L-0T) — the sell-DP/liquidation layer keeps adding value on a much
+      stronger base plan, not just papering over a weak one. LNS's own portfolio margin improved
+      +60% (`$22,504` vs. `$14,087`, search-set) alongside the win-rate jump — no sign of
+      diminishing returns yet in this budget range. `beicicc-c26` (the population's dominant
+      public strategy, per 018) remains the only thing this repo's best agent still loses to.
+      Submitted as `lns-sell-dp-composition-v2`, replacing v1 in Kaggle's latest-2-scored pair.
+      See [`notes/lns-sell-dp-composition.md`](notes/lns-sell-dp-composition.md).
 - [ ] 13. **Submission cadence:** 1–2 subs/day from the frozen champion; never burn all 5.
 
 ### P3 — Closed-loop and robustness (Sep 10–23)

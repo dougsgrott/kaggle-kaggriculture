@@ -110,8 +110,11 @@ consistent with it being a free byproduct with no cost basis to protect.**
 ## 5. Validation
 
 Endgame DP vs. the naive "dump everything the moment the window opens" baseline, same production
-schedule, live evaluation (`experiments/exp-013-terminal-liquidation/`, `window_turns=24`,
-100 seeds / 200 games): **192W-8L-0T**, Wilson CI `[0.923, 0.980]`, verdict **`better`**. Mean
-money: $8,521 (DP) vs. $7,240 (naive), +18%. See
-[017](../issues/017-terminal-liquidation.md)'s Revision section for the full writeup, including why
-`window_turns=24` (exactly the final day) outperforms a 48-turn window.
+schedule, live evaluation (`experiments/exp-014-terminal-liquidation/`, `window_turns=24`,
+100 seeds / 200 games): **200W-0L-0T**, Wilson CI `[0.981, 1.000]`, verdict **`better`**. Mean
+money: $8,588 (DP) vs. $7,711 (naive), +11%. (Corrected 2026-08-20 — the original run,
+`exp-013-terminal-liquidation`, hit a cross-episode stale-state bug in both wrapper agents that
+this rerun fixes; see [017](../issues/017-terminal-liquidation.md)'s second Revision section for
+what broke and why the corrected result is cleaner, not weaker.) See
+[017](../issues/017-terminal-liquidation.md)'s first Revision section for the full writeup,
+including why `window_turns=24` (exactly the final day) outperforms a 48-turn window.
