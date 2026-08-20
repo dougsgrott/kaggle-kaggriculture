@@ -252,13 +252,21 @@ def dump_everything_agent(base_agent_fn: Callable[[dict, dict], dict], config: d
     episode_steps = config["episodeSteps"]
     turns_per_day = config["turnsPerDay"]
     window_start_step = episode_steps - window_turns
-    dumped: dict = {"done": False}
+    dumped: dict = {"done": False, "last_step": None}
 
     def agent(observation: dict, configuration: dict) -> dict:
         action = base_agent_fn(observation, configuration)
         day = observation.get("day", 0)
         hour = observation.get("hour", 0)
         step = day * turns_per_day + hour
+        if dumped["last_step"] is not None and step <= dumped["last_step"]:
+            # A new episode has started (see terminal_liquidation_agent's own identical fix and
+            # its comment for why this matters): a Policy built from this closure is resolved
+            # once and reused across many games by both eval.arena and eval.population, so
+            # without this reset "dump everything" would silently degrade to "dump nothing" from
+            # the second episode onward.
+            dumped["done"] = False
+        dumped["last_step"] = step
         if step < window_start_step or dumped["done"]:
             return action
         private = observation["private"]
@@ -312,6 +320,17 @@ def terminal_liquidation_agent(
             return action
 
         private = observation["private"]
+        if state["window_start"] is not None and step <= state["window_start"]:
+            # A new episode has started -- within one episode, `step` strictly increases call to
+            # call (the very call that sets `state["window_start"]` is the first one to reach it),
+            # so seeing `step` back at or before that value again means a fresh episode reused
+            # this closure. A Policy built from it is meant to be resolved once and reused across
+            # many games (see eval.arena's own "resolve once, reuse across every game" convention,
+            # and eval.population's population-wide reuse for issue 018): without this reset, the
+            # first episode's endgame plan would silently keep being replayed against every later
+            # episode's completely different shed holdings.
+            state["plan"] = None
+            state["window_start"] = None
         if state["plan"] is None:
             market = observation["market"]
             town = observation.get("town", {}) or {}
